@@ -30,6 +30,15 @@ class Settings(BaseSettings):
     # for some other audience (e.g. internal service) is rejected.
     SUPABASE_JWT_AUDIENCE: str = "authenticated"
 
+    # ── Cloudinary ───────────────────────────────────────────────────────
+    # Image/media storage. Set either CLOUDINARY_URL alone, or the three
+    # CLOUDINARY_* fields. storage.py reads these to configure the SDK.
+    CLOUDINARY_URL: str = ""
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
+    CLOUDINARY_DEFAULT_FOLDER: str = "portfolio"
+
     # Handy flags
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
