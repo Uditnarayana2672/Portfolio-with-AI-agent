@@ -9,7 +9,7 @@ from sqlalchemy import ARRAY, Boolean, CHAR, CheckConstraint, DateTime, Double, 
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.infrastructure.persistence.database import Base
 
 
 class ActivityType(str, enum.Enum):
@@ -508,7 +508,10 @@ class MediaAssets(Base):
         Index('idx_media_assets_resource_type', 'resource_type'),
         Index('idx_media_assets_search', postgresql_using='gin'),
         Index('idx_media_assets_source_type', 'source_type'),
-        Index('uq_media_assets_external_id', 'external_id', postgresql_where='(external_id IS NOT NULL)', unique=True)
+        Index('uq_media_assets_external_id', 'external_id', postgresql_where='(external_id IS NOT NULL)', unique=True),
+        Index('idx_media_assets_file_hash', 'file_hash'),
+        Index('idx_media_assets_created_at', text('created_at DESC')),
+        Index('idx_media_assets_fname_trgm', 'file_name', postgresql_using='gin', postgresql_ops={'file_name': 'gin_trgm_ops'})
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
@@ -530,6 +533,12 @@ class MediaAssets(Base):
     thumbnail_url: Mapped[Optional[str]] = mapped_column(Text)
     video_title: Mapped[Optional[str]] = mapped_column(Text)
     video_duration_seconds: Mapped[Optional[int]] = mapped_column(Integer)
+    # SHA-256 of the uploaded binary, for duplicate detection. NULL for assets
+    # imported by URL (e.g. YouTube) where we never see the raw bytes.
+    file_hash: Mapped[Optional[str]] = mapped_column(Text)
+    # Flagged TRUE by the nightly cleanup job when the Cloudinary asset is gone
+    # but the DB row remains (shown as a "404 / DB record only" card in the grid).
+    is_orphan: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
 
     users: Mapped['Users'] = relationship('Users', back_populates='media_assets')
 

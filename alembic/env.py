@@ -3,9 +3,9 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 from alembic import context
 
-from app.core.config import settings
-from app.db.base import Base
-import app.models.models  # noqa: F401  registers all tables on Base.metadata
+from app.infrastructure.config import settings
+from app.infrastructure.persistence.database import Base
+import app.infrastructure.persistence.orm.models  # noqa: F401  registers all tables on Base.metadata
 
 # this is the Alembic Config object
 config = context.config

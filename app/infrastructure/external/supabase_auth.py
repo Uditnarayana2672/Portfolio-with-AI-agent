@@ -23,7 +23,7 @@ from typing import Any, TypedDict
 import httpx
 from jose import JWTError, jwt
 
-from app.core.config import settings
+from app.infrastructure.config import settings
 
 
 class SupabaseTokenPayload(TypedDict):

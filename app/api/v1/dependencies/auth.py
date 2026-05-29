@@ -22,9 +22,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy.orm import Session
 
-from app.core.security import verify_supabase_jwt
-from app.db.sessions import get_db
-from app.models.models import UserRole, Users
+from app.infrastructure.external.supabase_auth import verify_supabase_jwt
+from app.infrastructure.persistence.database import get_db
+from app.infrastructure.persistence.orm.models import UserRole, Users
 
 # HTTPBearer pulls the token out of `Authorization: Bearer <token>` and
 # gives /docs a working "Authorize" button. auto_error=False lets us raise

@@ -9,8 +9,8 @@ here later, using the same `Depends(get_current_admin)` pattern.
 """
 from fastapi import APIRouter, Depends
 
-from app.api.v1.deps import get_current_admin, get_current_user
-from app.models.models import Users
+from app.api.v1.dependencies.auth import get_current_admin, get_current_user
+from app.infrastructure.persistence.orm.models import Users
 
 router = APIRouter()
 

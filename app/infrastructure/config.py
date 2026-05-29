@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     """Loads all secrets/config from the .env file in one place.
 
     Anywhere in the app you just write:
-        from app.core.config import settings
+        from app.infrastructure.config import settings
         settings.DATABASE_URL
     so you never hardcode a password or URL in your code.
     """
@@ -19,8 +19,7 @@ class Settings(BaseSettings):
     # SUPABASE_ANON_KEY: modern publishable key (sb_publishable_...). Safe in
     #   frontend; required for client logins via /auth/v1/token.
     # SUPABASE_JWT_SECRET: legacy HS256 secret. Kept for reference only —
-    #   verify_supabase_jwt() uses asymmetric JWKS, not this. Safe to drop
-    #   if you don't plan to switch back to HS256.
+    #   verify_supabase_jwt() uses asymmetric JWKS, not this.
     SUPABASE_URL: str
     SUPABASE_ANON_KEY: str
     SUPABASE_JWT_SECRET: str = ""
@@ -32,7 +31,7 @@ class Settings(BaseSettings):
 
     # ── Cloudinary ───────────────────────────────────────────────────────
     # Image/media storage. Set either CLOUDINARY_URL alone, or the three
-    # CLOUDINARY_* fields. storage.py reads these to configure the SDK.
+    # CLOUDINARY_* fields. The CloudinaryImageStorage adapter reads these.
     CLOUDINARY_URL: str = ""
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
