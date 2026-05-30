@@ -38,6 +38,21 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str = ""
     CLOUDINARY_DEFAULT_FOLDER: str = "portfolio"
 
+    # Storage quota shown on the media dashboard's banner. Defaults match the
+    # PLUS plan (2.25 GB); override via .env if the plan changes. (Source of
+    # truth for `quota_bytes`/`plan` in GET /admin/media/stats.)
+    CLOUDINARY_QUOTA_BYTES: int = 2_415_919_104  # 2.25 GB
+    CLOUDINARY_PLAN: str = "PLUS"
+
+    # ── URL import (SSRF-safe remote fetch for /admin/media/import-url) ──────
+    # Connect/read timeout (seconds) and the max redirects we'll follow, each
+    # hop re-validated against the private-range block-list.
+    URL_FETCH_TIMEOUT_SECONDS: float = 10.0
+    URL_FETCH_MAX_REDIRECTS: int = 3
+    # Optional: enables YouTube video duration lookup via the Data API. Title +
+    # thumbnail work without it (via oEmbed).
+    YOUTUBE_API_KEY: str = ""
+
     # Handy flags
     ENVIRONMENT: str = "development"
     DEBUG: bool = True

@@ -7,14 +7,15 @@ This is the ONLY place the Cloudinary SDK is imported. Credentials come from
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import IO, Any
 
 import cloudinary
 import cloudinary.api
 import cloudinary.uploader
 import cloudinary.utils
+from cloudinary.exceptions import Error as CloudinaryError
 
-from app.application.interfaces.image_storage import ImageStorage
+from app.application.interfaces.image_storage import ImageStorage, StorageError
 from app.infrastructure.config import settings
 
 
@@ -47,18 +48,31 @@ class CloudinaryImageStorage(ImageStorage):
 
     def upload(
         self,
-        source: str,
+        source: str | bytes | IO[bytes],
         *,
         folder: str | None = None,
         public_id: str | None = None,
         **options: Any,
     ) -> dict[str, Any]:
-        return cloudinary.uploader.upload(
-            source,
-            folder=folder or settings.CLOUDINARY_DEFAULT_FOLDER,
-            public_id=public_id,
-            **options,
-        )
+        try:
+            return cloudinary.uploader.upload(
+                source,
+                folder=folder or settings.CLOUDINARY_DEFAULT_FOLDER,
+                public_id=public_id,
+                **options,
+            )
+        except CloudinaryError as exc:
+            # Normalise the SDK error to a provider-agnostic StorageError so the
+            # use case can retry without importing Cloudinary. Surface the
+            # provider's request id when the SDK attached one to the response.
+            request_id = None
+            response = getattr(exc, "response", None)
+            if response is not None:
+                headers = getattr(response, "headers", {}) or {}
+                request_id = headers.get("X-Cld-Request-Id") or headers.get(
+                    "x-cld-request-id"
+                )
+            raise StorageError(str(exc), request_id=request_id) from exc
 
     def get_details(self, public_id: str) -> dict[str, Any]:
         return cloudinary.api.resource(public_id)

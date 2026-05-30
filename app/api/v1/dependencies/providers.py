@@ -20,10 +20,23 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.application.interfaces.image_storage import ImageStorage
+from app.application.interfaces.url_fetcher import UrlFetcher
+from app.application.interfaces.video_metadata import VideoMetadataProvider
+from app.application.use_cases.media.get_media_asset import GetMediaAsset
+from app.application.use_cases.media.get_media_stats import GetMediaStats
+from app.application.use_cases.media.import_url_media import ImportUrlMedia
 from app.application.use_cases.media.list_media import ListMedia
+from app.application.use_cases.media.upload_media import UploadMedia
+from app.domain.repositories.activity_log_repository import ActivityLogRepository
 from app.domain.repositories.media_asset_repository import MediaAssetRepository
+from app.infrastructure.config import settings
 from app.infrastructure.external.cloudinary_storage import CloudinaryImageStorage
+from app.infrastructure.external.safe_url_fetcher import SafeHttpUrlFetcher
+from app.infrastructure.external.youtube_metadata import YouTubeMetadataProvider
 from app.infrastructure.persistence.database import get_db
+from app.infrastructure.persistence.repositories.activity_log_repository import (
+    SqlAlchemyActivityLogRepository,
+)
 from app.infrastructure.persistence.repositories.media_asset_repository import (
     SqlAlchemyMediaAssetRepository,
 )
@@ -39,7 +52,63 @@ def get_media_repository(db: Session = Depends(get_db)) -> MediaAssetRepository:
     return SqlAlchemyMediaAssetRepository(db)
 
 
+def get_activity_repository(db: Session = Depends(get_db)) -> ActivityLogRepository:
+    """Bind the SQLAlchemy activity-log repository to the request's DB session."""
+    return SqlAlchemyActivityLogRepository(db)
+
+
 def get_list_media(
     repo: MediaAssetRepository = Depends(get_media_repository),
 ) -> ListMedia:
     return ListMedia(repo=repo)
+
+
+def get_media_asset(
+    repo: MediaAssetRepository = Depends(get_media_repository),
+) -> GetMediaAsset:
+    return GetMediaAsset(repo=repo)
+
+
+def get_media_stats(
+    repo: MediaAssetRepository = Depends(get_media_repository),
+) -> GetMediaStats:
+    # Quota/plan come from config (the PLUS plan's 2.25 GB by default); used
+    # bytes are summed from the DB inside the use case.
+    return GetMediaStats(
+        repo=repo,
+        quota_bytes=settings.CLOUDINARY_QUOTA_BYTES,
+        plan=settings.CLOUDINARY_PLAN,
+    )
+
+
+def get_upload_media(
+    repo: MediaAssetRepository = Depends(get_media_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+    storage: ImageStorage = Depends(get_image_storage),
+) -> UploadMedia:
+    return UploadMedia(repo=repo, activity=activity, storage=storage)
+
+
+def get_url_fetcher() -> UrlFetcher:
+    """Provide the SSRF-hardened URL fetcher (timeout/redirect caps from config)."""
+    return SafeHttpUrlFetcher()
+
+
+def get_video_metadata() -> VideoMetadataProvider:
+    return YouTubeMetadataProvider()
+
+
+def get_import_url_media(
+    repo: MediaAssetRepository = Depends(get_media_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+    storage: ImageStorage = Depends(get_image_storage),
+    fetcher: UrlFetcher = Depends(get_url_fetcher),
+    video_metadata: VideoMetadataProvider = Depends(get_video_metadata),
+) -> ImportUrlMedia:
+    return ImportUrlMedia(
+        repo=repo,
+        activity=activity,
+        storage=storage,
+        fetcher=fetcher,
+        video_metadata=video_metadata,
+    )

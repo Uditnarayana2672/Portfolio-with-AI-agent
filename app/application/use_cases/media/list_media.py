@@ -14,13 +14,10 @@ from app.application.dtos.media import (
     VALID_SORT_BY,
     ListMediaQuery,
     ListMediaResult,
-    MediaAssetView,
 )
+from app.application.use_cases.media.media_view import to_media_view
 from app.domain.exceptions import ValidationError
-from app.domain.repositories.media_asset_repository import (
-    MediaAssetListItem,
-    MediaAssetRepository,
-)
+from app.domain.repositories.media_asset_repository import MediaAssetRepository
 
 
 class ListMedia:
@@ -56,7 +53,7 @@ class ListMedia:
         )
 
         return ListMediaResult(
-            assets=[self._to_view(item) for item in page_result.items],
+            assets=[to_media_view(item) for item in page_result.items],
             total=page_result.total,
             page=page,
             limit=limit,
@@ -64,30 +61,4 @@ class ListMedia:
             # populated even on an empty filtered result.
             folder_stats=self._repo.folder_stats(),
             type_stats=self._repo.type_stats(),
-        )
-
-    @staticmethod
-    def _to_view(item: MediaAssetListItem) -> MediaAssetView:
-        a = item.asset
-        return MediaAssetView(
-            id=a.id,
-            cloudinary_url=a.cloudinary_url,
-            public_id=a.public_id,
-            resource_type=a.resource_type,
-            format=a.format,
-            width=a.width,
-            height=a.height,
-            file_size=a.file_size,
-            file_name=a.file_name,
-            folder=a.folder,
-            alt_text=a.alt_text,
-            source_type=a.source_type,
-            thumbnail_url=a.thumbnail_url,
-            video_duration_seconds=a.video_duration_seconds,
-            is_orphan=a.is_orphan,
-            cdn_status="missing" if a.is_orphan else "ok",
-            uploaded_by=a.uploaded_by,
-            uploaded_by_name=item.uploaded_by_name,
-            created_at=a.created_at,
-            updated_at=a.updated_at,
         )

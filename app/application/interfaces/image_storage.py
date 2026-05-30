@@ -8,7 +8,19 @@ changes.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import IO, Any
+
+
+class StorageError(Exception):
+    """Raised by a storage adapter when a provider operation fails.
+
+    Provider-agnostic so use cases can catch it without importing any SDK.
+    ``request_id`` carries the provider's correlation id when available.
+    """
+
+    def __init__(self, message: str, *, request_id: str | None = None) -> None:
+        super().__init__(message)
+        self.request_id = request_id
 
 
 class ImageStorage(ABC):
@@ -17,14 +29,15 @@ class ImageStorage(ABC):
     @abstractmethod
     def upload(
         self,
-        source: str,
+        source: str | bytes | IO[bytes],
         *,
         folder: str | None = None,
         public_id: str | None = None,
         **options: Any,
     ) -> dict[str, Any]:
-        """Upload an image (path, URL, or data URI). Returns provider response
-        including at least ``secure_url`` and ``public_id``."""
+        """Upload media (path, URL, data URI, raw bytes, or a file-like object).
+        Returns the provider response including at least ``secure_url`` and
+        ``public_id``. Raises ``StorageError`` on provider failure."""
 
     @abstractmethod
     def get_details(self, public_id: str) -> dict[str, Any]:
