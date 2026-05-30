@@ -1,54 +1,21 @@
 """MediaAssetRepository port (domain layer).
 
-Abstract contract for persisting/querying media assets. The application layer
-depends on this; the SQLAlchemy implementation lives in infrastructure.
+The abstract contract the application layer depends on for querying media
+assets. The concrete SQLAlchemy implementation lives in infrastructure
+(app/infrastructure/persistence/repositories/media_asset_repository.py) and is
+the only place that knows about SQL.
+
+TODO (implement manually):
+  - Define an abstract base class `MediaAssetRepository` (use abc.ABC) with the
+    methods the ListMedia use case needs:
+        * list(*, folder, resource_type, search, sort_by, order, offset, limit)
+            -> a page of results + the total count matching the filters.
+        * folder_stats() -> dict[str, int]  # count per folder across the WHOLE
+            table (filters ignored), plus an "all" grand total.
+        * type_stats()   -> dict[str, int]  # count per resource_type, whole table.
+  - Define small result containers the methods return, e.g. a `MediaListPage`
+    (items + total) and a `MediaAssetListItem` (a MediaAsset paired with its
+    uploader's display name, since that name comes from a JOIN, not the entity).
+  - Depend only on the MediaAsset entity — no ORM/HTTP imports here.
 """
 from __future__ import annotations
-
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-
-from app.domain.entities.media_asset import MediaAsset
-
-
-@dataclass(frozen=True)
-class MediaAssetListItem:
-    """A listed asset paired with its uploader's display name (a join result,
-    not part of the MediaAsset aggregate)."""
-
-    asset: MediaAsset
-    uploaded_by_name: str | None
-
-
-@dataclass(frozen=True)
-class MediaListPage:
-    """One page of list results plus the total count matching the filters."""
-
-    items: list[MediaAssetListItem]
-    total: int
-
-
-class MediaAssetRepository(ABC):
-    @abstractmethod
-    def list(
-        self,
-        *,
-        folder: str | None,
-        resource_type: str | None,
-        search: str | None,
-        sort_by: str,
-        order: str,
-        offset: int,
-        limit: int,
-    ) -> MediaListPage:
-        """Return assets matching the filters, ordered & paginated, with the
-        total count of matches (ignoring offset/limit)."""
-
-    @abstractmethod
-    def folder_stats(self) -> dict[str, int]:
-        """Count of assets per folder across the WHOLE table (filters ignored),
-        including an ``"all"`` grand total. Drives the sidebar pills."""
-
-    @abstractmethod
-    def type_stats(self) -> dict[str, int]:
-        """Count of assets per resource_type across the WHOLE table."""
