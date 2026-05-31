@@ -6,6 +6,7 @@ errors to HTTP, serialize the result. No business logic here.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 
 from fastapi import (
     APIRouter,
@@ -14,6 +15,7 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Response,
     UploadFile,
     status,
 )
@@ -21,10 +23,13 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1.dependencies.auth import get_current_admin
 from app.api.v1.dependencies.providers import (
+    get_delete_media,
     get_import_url_media,
     get_list_media,
     get_media_asset,
     get_media_stats,
+    get_media_usage,
+    get_update_media,
     get_upload_media,
 )
 from app.api.v1.schemas.media import (
@@ -34,26 +39,36 @@ from app.api.v1.schemas.media import (
     MediaAssetResponse,
     MediaListResponse,
     MediaStatsResponse,
+    MediaUsageResponse,
     StorageStatsResponse,
+    UpdateMediaRequest,
+    UpdateMediaResponse,
     UploadedAssetResponse,
     UploadMediaResponse,
+    UsageReferenceResponse,
 )
 from app.application.dtos.media import (
     DEFAULT_LIMIT,
     ImportUrlCommand,
     ListMediaQuery,
+    UpdateMediaCommand,
     UploadMediaCommand,
 )
 from app.application.dtos.media import UploadMediaResult
 from app.application.use_cases.media.get_media_asset import GetMediaAsset
 from app.application.use_cases.media.get_media_stats import GetMediaStats
+from app.application.use_cases.media.get_media_usage import GetMediaUsage
 from app.application.use_cases.media.import_url_media import ImportUrlMedia
+from app.application.use_cases.media.delete_media import DeleteMedia
 from app.application.use_cases.media.list_media import ListMedia
+from app.application.use_cases.media.update_media import UpdateMedia
 from app.application.use_cases.media.upload_media import UploadMedia
+from app.application.interfaces.image_storage import StorageError
 from app.domain.exceptions import (
     BlockedUrlError,
     FileTooLargeError,
     InvalidUrlError,
+    MediaInUseError,
     NotFoundError,
     StorageUploadError,
     UnsupportedFileTypeError,
@@ -301,3 +316,140 @@ def get_media_asset_detail(
 
     base = MediaAssetResponse.model_validate(detail.asset)
     return MediaAssetDetailResponse(**base.model_dump(), usage_count=detail.usage_count)
+
+
+@router.patch("/{asset_id}", response_model=UpdateMediaResponse)
+def update_media_asset(
+    asset_id: uuid.UUID,
+    body: UpdateMediaRequest,
+    _admin: Users = Depends(get_current_admin),
+    use_case: UpdateMedia = Depends(get_update_media),
+) -> JSONResponse:
+    """Edit alt text, rename the file, and/or move it to another folder. All
+    fields optional — only what's sent is changed. Renaming file_name/folder
+    renames the Cloudinary public_id (collision → numeric suffix) and returns
+    the fresh cloudinary_url."""
+    # exclude_unset → only the keys the client actually sent, so the use case
+    # can tell "not provided" apart from an explicit null (e.g. clearing alt_text).
+    command = UpdateMediaCommand(asset_id=asset_id, **body.model_dump(exclude_unset=True))
+
+    try:
+        result = use_case.execute(command)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "MEDIA_NOT_FOUND", "message": str(exc)},
+        ) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "INVALID_FOLDER", "message": str(exc)},
+        ) from exc
+    except StorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"code": "STORAGE_ERROR", "message": str(exc), "request_id": exc.request_id},
+        ) from exc
+
+    # Build the envelope explicitly so the `asset` object keeps its null fields
+    # (e.g. alt_text: null) while rename_note appears only when a collision
+    # actually forced a suffix — matching the §3.7 contract.
+    payload: dict = {
+        "asset": MediaAssetResponse.model_validate(result.asset).model_dump(mode="json"),
+        "renamed": result.renamed,
+    }
+    if result.rename_note is not None:
+        payload["rename_note"] = result.rename_note
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content=payload)
+
+
+def _run_delete(action: Callable[[], None]) -> Response:
+    try:
+        action()
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "MEDIA_NOT_FOUND", "message": str(exc)},
+        ) from exc
+    except MediaInUseError as exc:
+        # The §3.8 contract uses a flat {error, message, detail} envelope here
+        # (not the usual {detail:{code,message}}), so return it verbatim.
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "error": "MEDIA_IN_USE",
+                "message": str(exc),
+                "detail": {
+                    "usage_count": exc.usage_count,
+                    "references": [
+                        UsageReferenceResponse.model_validate(
+                            ref, from_attributes=True
+                        ).model_dump(mode="json")
+                        for ref in exc.references
+                    ],
+                },
+            },
+        )
+    except StorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "STORAGE_ERROR",
+                "message": str(exc),
+                "request_id": exc.request_id,
+            },
+        ) from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/by-id/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_media_asset_by_id(
+    asset_id: uuid.UUID,
+    force: bool = Query(default=False, description="bypass the in-use guard"),
+    admin: Users = Depends(get_current_admin),
+    use_case: DeleteMedia = Depends(get_delete_media),
+) -> Response:
+    """Delete any asset by UUID, including external assets such as YouTube
+    videos that have no Cloudinary public_id."""
+    return _run_delete(
+        lambda: use_case.execute_by_id(asset_id, force=force, performed_by=admin.id)
+    )
+
+
+# public_id contains slashes (folder/stem) and arrives URL-encoded; the :path
+# converter lets the single param capture the whole decoded id. Keep static
+# DELETE routes above this greedy match.
+@router.delete("/{public_id:path}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_media_asset(
+    public_id: str,
+    force: bool = Query(default=False, description="bypass the in-use guard"),
+    admin: Users = Depends(get_current_admin),
+    use_case: DeleteMedia = Depends(get_delete_media),
+) -> Response:
+    """Delete one Cloudinary asset by public_id. Refused with 409 while the
+    asset is still referenced unless `?force=true`."""
+    return _run_delete(
+        lambda: use_case.execute(public_id, force=force, performed_by=admin.id)
+    )
+
+
+@router.get("/{asset_id}/usage", response_model=MediaUsageResponse)
+def get_media_usage_references(
+    asset_id: uuid.UUID,
+    _admin: Users = Depends(get_current_admin),
+    use_case: GetMediaUsage = Depends(get_media_usage),
+) -> MediaUsageResponse:
+    """Where this asset is used ("Used in N places") — for the drawer and the
+    delete-confirm modal. Matches the asset's public_id across project
+    thumbnails/blocks and blog cover/og/content."""
+    try:
+        result = use_case.execute(asset_id)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "MEDIA_NOT_FOUND", "message": str(exc)},
+        ) from exc
+
+    return MediaUsageResponse.model_validate(result, from_attributes=True)

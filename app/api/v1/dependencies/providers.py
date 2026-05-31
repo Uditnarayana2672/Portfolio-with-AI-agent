@@ -22,10 +22,13 @@ from sqlalchemy.orm import Session
 from app.application.interfaces.image_storage import ImageStorage
 from app.application.interfaces.url_fetcher import UrlFetcher
 from app.application.interfaces.video_metadata import VideoMetadataProvider
+from app.application.use_cases.media.delete_media import DeleteMedia
 from app.application.use_cases.media.get_media_asset import GetMediaAsset
 from app.application.use_cases.media.get_media_stats import GetMediaStats
+from app.application.use_cases.media.get_media_usage import GetMediaUsage
 from app.application.use_cases.media.import_url_media import ImportUrlMedia
 from app.application.use_cases.media.list_media import ListMedia
+from app.application.use_cases.media.update_media import UpdateMedia
 from app.application.use_cases.media.upload_media import UploadMedia
 from app.domain.repositories.activity_log_repository import ActivityLogRepository
 from app.domain.repositories.media_asset_repository import MediaAssetRepository
@@ -69,6 +72,12 @@ def get_media_asset(
     return GetMediaAsset(repo=repo)
 
 
+def get_media_usage(
+    repo: MediaAssetRepository = Depends(get_media_repository),
+) -> GetMediaUsage:
+    return GetMediaUsage(repo=repo)
+
+
 def get_media_stats(
     repo: MediaAssetRepository = Depends(get_media_repository),
 ) -> GetMediaStats:
@@ -87,6 +96,21 @@ def get_upload_media(
     storage: ImageStorage = Depends(get_image_storage),
 ) -> UploadMedia:
     return UploadMedia(repo=repo, activity=activity, storage=storage)
+
+
+def get_update_media(
+    repo: MediaAssetRepository = Depends(get_media_repository),
+    storage: ImageStorage = Depends(get_image_storage),
+) -> UpdateMedia:
+    return UpdateMedia(repo=repo, storage=storage)
+
+
+def get_delete_media(
+    repo: MediaAssetRepository = Depends(get_media_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+    storage: ImageStorage = Depends(get_image_storage),
+) -> DeleteMedia:
+    return DeleteMedia(repo=repo, activity=activity, storage=storage)
 
 
 def get_url_fetcher() -> UrlFetcher:

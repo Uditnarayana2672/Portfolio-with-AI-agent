@@ -23,6 +23,20 @@ class ValidationError(DomainError):
     """Input violates a business rule (→ HTTP 422)."""
 
 
+class MediaInUseError(ConflictError):
+    """A media asset is still referenced and ``force`` was not set (→ HTTP 409).
+
+    Carries the usage total and the resolved references (each already paired
+    with an admin deep link) so the API can return the in-use detail the
+    delete-confirm modal renders.
+    """
+
+    def __init__(self, usage_count: int, references: list) -> None:
+        super().__init__(f"Asset is referenced by {usage_count} places.")
+        self.usage_count = usage_count
+        self.references = references
+
+
 class PermissionError(DomainError):
     """The caller is not allowed to perform this action (→ HTTP 403)."""
 

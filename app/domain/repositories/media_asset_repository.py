@@ -30,6 +30,18 @@ class MediaListPage:
 
 
 @dataclass(frozen=True)
+class MediaUsageRef:
+    """One place an asset is referenced. ``kind`` drives the icon/label and the
+    admin link base (project vs blog); ``location`` is the human spot (e.g.
+    "hero block", "cover", "og:image", "content", "thumbnail")."""
+
+    kind: str            # 'project' | 'blog' | 'og'
+    entity_id: uuid.UUID
+    title: str | None
+    location: str
+
+
+@dataclass(frozen=True)
 class NewMediaAsset:
     """The fields needed to persist a freshly uploaded asset. Distinct from the
     ``MediaAsset`` entity, which also carries server-assigned id/timestamps."""
@@ -106,10 +118,12 @@ class MediaAssetRepository(ABC):
         or None if no row matches. Powers the detail drawer."""
 
     @abstractmethod
-    def usage_count(self, asset: MediaAsset) -> int:
-        """How many content entities reference this asset (projects/blog posts
-        pointing at its delivery URL). A convenience total for the drawer; the
-        detailed breakdown is served separately by the usage endpoint."""
+    def find_usage(self, public_id: str) -> list[MediaUsageRef]:
+        """Every place this asset's ``public_id`` appears across content:
+        project thumbnails & block configs, and blog cover/og images & content.
+        One row per match (a project hit via two blocks yields two refs). The
+        single source of truth behind both the usage list and the drawer's
+        ``usage_count`` total."""
 
     @abstractmethod
     def find_by_hash(self, file_hash: str) -> MediaAsset | None:
@@ -127,6 +141,25 @@ class MediaAssetRepository(ABC):
         YouTube video id), or None. De-duplicates URL imports of remote video."""
 
     @abstractmethod
+    def find_by_public_id(self, public_id: str) -> MediaAsset | None:
+        """Return the asset owning this Cloudinary public_id, or None. Powers the
+        delete-by-public_id endpoint."""
+
+    @abstractmethod
     def add(self, new: NewMediaAsset) -> MediaAsset:
         """Persist a new asset and return it with server-assigned id/timestamps.
         Flushes so the id is available; the request's session owns the commit."""
+
+    @abstractmethod
+    def update(
+        self, asset_id: uuid.UUID, changes: dict
+    ) -> MediaAssetListItem | None:
+        """Apply a partial column update (the ``changes`` map) plus
+        ``updated_at = now()`` to an asset, returning it re-read with its
+        uploader name — or None if no row matches the id. Flushes only; the
+        request's session owns the commit."""
+
+    @abstractmethod
+    def delete(self, asset_id: uuid.UUID) -> None:
+        """Remove the asset row by id (no-op if already gone). Flushes only; the
+        request's session owns the commit."""

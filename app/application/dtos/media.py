@@ -7,6 +7,7 @@ from __future__ import annotations
 import datetime
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 # Allowed query values + pagination bounds (the single source of truth the
 # use case validates against).
@@ -95,6 +96,24 @@ class MediaAssetDetailResult:
 
 
 @dataclass
+class UsageReferenceView:
+    """One reference to an asset, with a ready-to-use admin deep link."""
+
+    kind: str          # 'project' | 'blog' | 'og'
+    id: str
+    title: str | None
+    location: str
+    url: str
+
+
+@dataclass
+class MediaUsageResult:
+    asset_id: uuid.UUID
+    usage_count: int
+    references: list[UsageReferenceView]
+
+
+@dataclass
 class StorageStatsView:
     """The Cloudinary storage banner: bytes used vs. the plan's quota."""
 
@@ -127,6 +146,47 @@ class UploadMediaCommand:
     resource_type: str | None = None  # None → inferred from the extension
     file_name: str | None = None      # display-name override
     alt_text: str | None = None
+
+
+class _Unset:
+    """Sentinel marking a PATCH field the client did not send — distinct from a
+    field explicitly sent as ``null`` (e.g. clearing ``alt_text``)."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid only
+        return "UNSET"
+
+
+UNSET: Any = _Unset()
+
+
+@dataclass
+class UpdateMediaCommand:
+    """Partial edit of an asset (PATCH /admin/media/{id}).
+
+    Every editable field defaults to ``UNSET`` so the use case can tell "not
+    provided" apart from "set to null". The HTTP layer fills only the keys the
+    client actually sent.
+    """
+
+    asset_id: uuid.UUID
+    file_name: Any = UNSET
+    folder: Any = UNSET
+    alt_text: Any = UNSET
+
+
+@dataclass
+class UpdateMediaResult:
+    """Outcome of an edit: the full refreshed asset plus collision-rename info.
+
+    ``renamed`` is True only when a name collision forced a numeric suffix
+    (mirroring the upload contract); ``rename_note`` explains it when so.
+    """
+
+    asset: MediaAssetView
+    renamed: bool
+    rename_note: str | None = None
 
 
 @dataclass

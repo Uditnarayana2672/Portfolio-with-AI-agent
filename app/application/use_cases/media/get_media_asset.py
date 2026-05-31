@@ -21,7 +21,10 @@ class GetMediaAsset:
         item = self._repo.get(asset_id)
         if item is None:
             raise NotFoundError(f"No media asset with id {asset_id}")
-        usage_count = self._repo.usage_count(item.asset)
+        # Count from the same matcher the /usage endpoint uses, so the drawer's
+        # "Used in N places" never disagrees with the detailed list.
+        public_id = item.asset.public_id
+        usage_count = len(self._repo.find_usage(public_id)) if public_id else 0
         return MediaAssetDetailResult(
             asset=to_media_view(item), usage_count=usage_count
         )

@@ -63,16 +63,28 @@ class CloudinaryImageStorage(ImageStorage):
             )
         except CloudinaryError as exc:
             # Normalise the SDK error to a provider-agnostic StorageError so the
-            # use case can retry without importing Cloudinary. Surface the
-            # provider's request id when the SDK attached one to the response.
-            request_id = None
-            response = getattr(exc, "response", None)
-            if response is not None:
-                headers = getattr(response, "headers", {}) or {}
-                request_id = headers.get("X-Cld-Request-Id") or headers.get(
-                    "x-cld-request-id"
-                )
-            raise StorageError(str(exc), request_id=request_id) from exc
+            # use case can retry without importing Cloudinary.
+            raise StorageError(str(exc), request_id=self._request_id(exc)) from exc
+
+    def rename(
+        self,
+        from_public_id: str,
+        to_public_id: str,
+        *,
+        resource_type: str = "image",
+        **options: Any,
+    ) -> dict[str, Any]:
+        try:
+            # overwrite defaults to False, so a target collision raises rather
+            # than clobbering an existing asset — the caller pre-resolves names.
+            return cloudinary.uploader.rename(
+                from_public_id,
+                to_public_id,
+                resource_type=resource_type,
+                **options,
+            )
+        except CloudinaryError as exc:
+            raise StorageError(str(exc), request_id=self._request_id(exc)) from exc
 
     def get_details(self, public_id: str) -> dict[str, Any]:
         return cloudinary.api.resource(public_id)
@@ -89,4 +101,17 @@ class CloudinaryImageStorage(ImageStorage):
         return url
 
     def delete(self, public_id: str) -> dict[str, Any]:
-        return cloudinary.uploader.destroy(public_id)
+        try:
+            return cloudinary.uploader.destroy(public_id)
+        except CloudinaryError as exc:
+            raise StorageError(str(exc), request_id=self._request_id(exc)) from exc
+
+    @staticmethod
+    def _request_id(exc: CloudinaryError) -> str | None:
+        """Pull Cloudinary's correlation id off the SDK error's response, if any,
+        so a StorageError can surface it for support tickets."""
+        response = getattr(exc, "response", None)
+        if response is None:
+            return None
+        headers = getattr(response, "headers", {}) or {}
+        return headers.get("X-Cld-Request-Id") or headers.get("x-cld-request-id")

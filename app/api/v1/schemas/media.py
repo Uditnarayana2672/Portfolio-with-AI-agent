@@ -43,6 +43,20 @@ class MediaAssetDetailResponse(MediaAssetResponse):
     usage_count: int
 
 
+class UsageReferenceResponse(BaseModel):
+    kind: str
+    id: str
+    title: str | None
+    location: str
+    url: str
+
+
+class MediaUsageResponse(BaseModel):
+    asset_id: uuid.UUID
+    usage_count: int
+    references: list[UsageReferenceResponse]
+
+
 class MediaListResponse(BaseModel):
     assets: list[MediaAssetResponse]
     total: int
@@ -116,3 +130,20 @@ class ImportUrlRequest(BaseModel):
     url: str = Field(..., min_length=1, description="http(s) URL or a YouTube link")
     folder: str = Field(..., min_length=1)
     alt_text: str | None = None
+
+
+class UpdateMediaRequest(BaseModel):
+    """Partial edit of an asset — send only the fields that changed. ``alt_text``
+    may be sent as null to clear it; the folder is validated by the use case
+    (→ 400 INVALID_FOLDER), so it is left permissive here."""
+
+    alt_text: str | None = None
+    file_name: str | None = None
+    folder: str | None = None
+
+
+class UpdateMediaResponse(BaseModel):
+    asset: MediaAssetResponse
+    renamed: bool
+    # Present only when a name collision forced a numeric suffix.
+    rename_note: str | None = None

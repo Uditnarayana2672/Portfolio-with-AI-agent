@@ -40,6 +40,19 @@ class ImageStorage(ABC):
         ``public_id``. Raises ``StorageError`` on provider failure."""
 
     @abstractmethod
+    def rename(
+        self,
+        from_public_id: str,
+        to_public_id: str,
+        *,
+        resource_type: str = "image",
+        **options: Any,
+    ) -> dict[str, Any]:
+        """Move an asset to a new public_id in place (no re-upload). Returns the
+        provider response including the fresh ``secure_url`` (the old derived/CDN
+        URLs are invalidated). Raises ``StorageError`` on provider failure."""
+
+    @abstractmethod
     def get_details(self, public_id: str) -> dict[str, Any]:
         """Return stored metadata (width, height, format, bytes, …)."""
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import asc, desc, func, or_, select
+from sqlalchemy import Text, asc, cast, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.domain.entities.media_asset import MediaAsset
@@ -12,11 +12,13 @@ from app.domain.repositories.media_asset_repository import (
     MediaAssetRepository,
     MediaListPage,
     MediaStatsSnapshot,
+    MediaUsageRef,
     NewMediaAsset,
 )
 from app.infrastructure.persistence.orm.models import (
     BlogPosts,
     MediaAssets,
+    ProjectBlocks,
     Projects,
     ResourceType,
     Users,
@@ -122,35 +124,70 @@ class SqlAlchemyMediaAssetRepository(MediaAssetRepository):
         asset, name = row
         return MediaAssetListItem(asset=self._to_entity(asset), uploaded_by_name=name)
 
-    def usage_count(self, asset: MediaAsset) -> int:
-        # Reference is by delivery URL; assets without one (e.g. YouTube) have no
-        # such references through these columns. Exact match avoids matching a
-        # longer URL that merely shares a prefix.
-        url = asset.cloudinary_url
-        if not url:
-            return 0
-        projects = (
-            self._db.scalar(
-                select(func.count())
-                .select_from(Projects)
-                .where(Projects.thumbnail_url == url)
+    def find_usage(self, public_id: str) -> list[MediaUsageRef]:
+        # A blank public_id (e.g. a YouTube asset) would make strpos(col, '')
+        # match every row, so short-circuit to "no references".
+        if not public_id:
+            return []
+
+        refs: list[MediaUsageRef] = []
+
+        # 1) project thumbnails
+        for pid, title in self._db.execute(
+            select(Projects.id, Projects.title).where(
+                func.strpos(Projects.thumbnail_url, public_id) > 0
             )
-            or 0
-        )
-        blogs = (
-            self._db.scalar(
-                select(func.count())
-                .select_from(BlogPosts)
-                .where(
-                    or_(
-                        BlogPosts.cover_image_url == url,
-                        BlogPosts.og_image_url == url,
-                    )
+        ).all():
+            refs.append(
+                MediaUsageRef(kind="project", entity_id=pid, title=title, location="thumbnail")
+            )
+
+        # 2) project block configs (JSONB → text); location is the block's type
+        for proj_id, title, block_type in self._db.execute(
+            select(ProjectBlocks.project_id, Projects.title, ProjectBlocks.block_type)
+            .join(Projects, ProjectBlocks.project_id == Projects.id)
+            .where(func.strpos(cast(ProjectBlocks.config, Text), public_id) > 0)
+        ).all():
+            refs.append(
+                MediaUsageRef(
+                    kind="project",
+                    entity_id=proj_id,
+                    title=title,
+                    location=f"{block_type} block",
                 )
             )
-            or 0
-        )
-        return projects + blogs
+
+        # 3) blog cover images
+        for bid, title in self._db.execute(
+            select(BlogPosts.id, BlogPosts.title).where(
+                func.strpos(BlogPosts.cover_image_url, public_id) > 0
+            )
+        ).all():
+            refs.append(
+                MediaUsageRef(kind="blog", entity_id=bid, title=title, location="cover")
+            )
+
+        # 4) blog OG images (distinct 'og' kind so the UI can label it)
+        for bid, title in self._db.execute(
+            select(BlogPosts.id, BlogPosts.title).where(
+                func.strpos(BlogPosts.og_image_url, public_id) > 0
+            )
+        ).all():
+            refs.append(
+                MediaUsageRef(kind="og", entity_id=bid, title=title, location="og:image")
+            )
+
+        # 5) blog post content (JSONB → text)
+        for bid, title in self._db.execute(
+            select(BlogPosts.id, BlogPosts.title).where(
+                func.strpos(cast(BlogPosts.content, Text), public_id) > 0
+            )
+        ).all():
+            refs.append(
+                MediaUsageRef(kind="blog", entity_id=bid, title=title, location="content")
+            )
+
+        return refs
 
     def find_by_hash(self, file_hash: str) -> MediaAsset | None:
         row = self._db.scalar(
@@ -171,6 +208,12 @@ class SqlAlchemyMediaAssetRepository(MediaAssetRepository):
     def find_by_external_id(self, external_id: str) -> MediaAsset | None:
         row = self._db.scalar(
             select(MediaAssets).where(MediaAssets.external_id == external_id).limit(1)
+        )
+        return self._to_entity(row) if row is not None else None
+
+    def find_by_public_id(self, public_id: str) -> MediaAsset | None:
+        row = self._db.scalar(
+            select(MediaAssets).where(MediaAssets.public_id == public_id).limit(1)
         )
         return self._to_entity(row) if row is not None else None
 
@@ -200,6 +243,28 @@ class SqlAlchemyMediaAssetRepository(MediaAssetRepository):
         self._db.flush()
         self._db.refresh(row)
         return self._to_entity(row)
+
+    def update(self, asset_id, changes: dict) -> MediaAssetListItem | None:
+        row = self._db.get(MediaAssets, asset_id)
+        if row is None:
+            return None
+        for column, value in changes.items():
+            setattr(row, column, value)
+        # The column has no onupdate trigger, so bump it here per the contract.
+        row.updated_at = datetime.datetime.now(datetime.timezone.utc)
+        # Flush only — the request's transaction stays open (get_db commits).
+        self._db.flush()
+        # Re-read through the uploader join so the returned item carries the name.
+        return self.get(asset_id)
+
+    def delete(self, asset_id) -> None:
+        row = self._db.get(MediaAssets, asset_id)
+        if row is None:
+            return
+        self._db.delete(row)
+        # Flush so a later activity-log insert in the same request sees the row
+        # gone; the request's transaction owns the commit.
+        self._db.flush()
 
     # ── helpers ────────────────────────────────────────────────────────────
     @staticmethod
