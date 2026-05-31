@@ -22,6 +22,8 @@ from sqlalchemy.orm import Session
 from app.application.interfaces.image_storage import ImageStorage
 from app.application.interfaces.url_fetcher import UrlFetcher
 from app.application.interfaces.video_metadata import VideoMetadataProvider
+from app.application.use_cases.media.bulk_delete_media import BulkDeleteMedia
+from app.application.use_cases.media.bulk_update_media import BulkUpdateMedia
 from app.application.use_cases.media.delete_media import DeleteMedia
 from app.application.use_cases.media.get_media_asset import GetMediaAsset
 from app.application.use_cases.media.get_media_stats import GetMediaStats
@@ -111,6 +113,19 @@ def get_delete_media(
     storage: ImageStorage = Depends(get_image_storage),
 ) -> DeleteMedia:
     return DeleteMedia(repo=repo, activity=activity, storage=storage)
+
+
+def get_bulk_delete_media(
+    delete_media: DeleteMedia = Depends(get_delete_media),
+) -> BulkDeleteMedia:
+    return BulkDeleteMedia(delete_media=delete_media)
+
+
+def get_bulk_update_media(
+    repo: MediaAssetRepository = Depends(get_media_repository),
+    update_media: UpdateMedia = Depends(get_update_media),
+) -> BulkUpdateMedia:
+    return BulkUpdateMedia(repo=repo, update_media=update_media)
 
 
 def get_url_fetcher() -> UrlFetcher:

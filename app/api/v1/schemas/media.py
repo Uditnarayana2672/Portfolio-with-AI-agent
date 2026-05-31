@@ -57,6 +57,47 @@ class MediaUsageResponse(BaseModel):
     references: list[UsageReferenceResponse]
 
 
+class BulkDeleteMediaRequest(BaseModel):
+    ids: list[uuid.UUID] = Field(..., min_length=1)
+    force: bool = False
+
+
+class BulkDeleteUsageReferenceResponse(BaseModel):
+    kind: str
+    title: str | None
+
+
+class BulkDeleteSkippedResponse(BaseModel):
+    id: uuid.UUID
+    reason: str
+    usage_count: int
+    references: list[BulkDeleteUsageReferenceResponse]
+
+
+class BulkDeleteMediaResponse(BaseModel):
+    deleted: list[uuid.UUID]
+    skipped: list[BulkDeleteSkippedResponse]
+    deleted_count: int
+    freed_bytes: int
+
+
+class BulkUpdateMediaRequest(BaseModel):
+    ids: list[uuid.UUID] = Field(..., min_length=1)
+    folder: str | None = None
+    alt_text: str | None = None
+
+
+class BulkUpdateRenamedResponse(BaseModel):
+    id: uuid.UUID
+    rename_note: str
+
+
+class BulkUpdateMediaResponse(BaseModel):
+    updated_count: int
+    renamed: list[BulkUpdateRenamedResponse]
+    assets: list[MediaAssetResponse]
+
+
 class MediaListResponse(BaseModel):
     assets: list[MediaAssetResponse]
     total: int

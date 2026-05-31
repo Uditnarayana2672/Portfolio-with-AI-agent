@@ -23,6 +23,8 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1.dependencies.auth import get_current_admin
 from app.api.v1.dependencies.providers import (
+    get_bulk_delete_media,
+    get_bulk_update_media,
     get_delete_media,
     get_import_url_media,
     get_list_media,
@@ -33,6 +35,10 @@ from app.api.v1.dependencies.providers import (
     get_upload_media,
 )
 from app.api.v1.schemas.media import (
+    BulkDeleteMediaRequest,
+    BulkDeleteMediaResponse,
+    BulkUpdateMediaRequest,
+    BulkUpdateMediaResponse,
     CleanupStatsResponse,
     ImportUrlRequest,
     MediaAssetDetailResponse,
@@ -48,6 +54,8 @@ from app.api.v1.schemas.media import (
     UsageReferenceResponse,
 )
 from app.application.dtos.media import (
+    BulkDeleteMediaCommand,
+    BulkUpdateMediaCommand,
     DEFAULT_LIMIT,
     ImportUrlCommand,
     ListMediaQuery,
@@ -55,6 +63,8 @@ from app.application.dtos.media import (
     UploadMediaCommand,
 )
 from app.application.dtos.media import UploadMediaResult
+from app.application.use_cases.media.bulk_delete_media import BulkDeleteMedia
+from app.application.use_cases.media.bulk_update_media import BulkUpdateMedia
 from app.application.use_cases.media.get_media_asset import GetMediaAsset
 from app.application.use_cases.media.get_media_stats import GetMediaStats
 from app.application.use_cases.media.get_media_usage import GetMediaUsage
@@ -297,8 +307,72 @@ def import_url(
     return JSONResponse(status_code=status_code, content=payload)
 
 
-# Declared AFTER the static routes (/stats, /upload, /import-url) and typed as a
-# UUID so it can never shadow them.
+@router.post("/bulk-delete", response_model=BulkDeleteMediaResponse)
+def bulk_delete_media_assets(
+    body: BulkDeleteMediaRequest,
+    admin: Users = Depends(get_current_admin),
+    use_case: BulkDeleteMedia = Depends(get_bulk_delete_media),
+) -> BulkDeleteMediaResponse:
+    """Delete selected assets and report expected per-item skips."""
+    try:
+        result = use_case.execute(
+            BulkDeleteMediaCommand(
+                asset_ids=body.ids,
+                force=body.force,
+                performed_by=admin.id,
+            )
+        )
+    except StorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "STORAGE_ERROR",
+                "message": str(exc),
+                "request_id": exc.request_id,
+            },
+        ) from exc
+
+    return BulkDeleteMediaResponse.model_validate(result, from_attributes=True)
+
+
+@router.post("/bulk-update", response_model=BulkUpdateMediaResponse)
+def bulk_update_media_assets(
+    body: BulkUpdateMediaRequest,
+    _admin: Users = Depends(get_current_admin),
+    use_case: BulkUpdateMedia = Depends(get_bulk_update_media),
+) -> BulkUpdateMediaResponse:
+    """Move selected assets and/or apply shared alt text."""
+    updates = body.model_dump(exclude={"ids"}, exclude_unset=True)
+    try:
+        result = use_case.execute(
+            BulkUpdateMediaCommand(asset_ids=body.ids, **updates)
+        )
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "MEDIA_NOT_FOUND", "message": str(exc)},
+        ) from exc
+    except ValidationError as exc:
+        code = "INVALID_FOLDER" if "folder" in body.model_fields_set else "INVALID_BULK_UPDATE"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": code, "message": str(exc)},
+        ) from exc
+    except StorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "STORAGE_ERROR",
+                "message": str(exc),
+                "request_id": exc.request_id,
+            },
+        ) from exc
+
+    return BulkUpdateMediaResponse.model_validate(result, from_attributes=True)
+
+
+# Declared AFTER the static routes (/stats, /upload, /import-url, /bulk-delete,
+# /bulk-update) and typed as a UUID so it can never shadow them.
 @router.get("/{asset_id}", response_model=MediaAssetDetailResponse)
 def get_media_asset_detail(
     asset_id: uuid.UUID,

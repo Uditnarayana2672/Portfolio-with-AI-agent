@@ -38,11 +38,11 @@ class DeleteMedia:
         *,
         force: bool = False,
         performed_by: uuid.UUID | None = None,
-    ) -> None:
+    ) -> MediaAsset:
         asset = self._repo.find_by_public_id(public_id)
         if asset is None:
             raise NotFoundError(f"No media asset with public_id {public_id!r}")
-        self._delete(asset, force=force, performed_by=performed_by)
+        return self._delete(asset, force=force, performed_by=performed_by)
 
     def execute_by_id(
         self,
@@ -50,11 +50,11 @@ class DeleteMedia:
         *,
         force: bool = False,
         performed_by: uuid.UUID | None = None,
-    ) -> None:
+    ) -> MediaAsset:
         item = self._repo.get(asset_id)
         if item is None:
             raise NotFoundError(f"No media asset with id {asset_id!r}")
-        self._delete(item.asset, force=force, performed_by=performed_by)
+        return self._delete(item.asset, force=force, performed_by=performed_by)
 
     def _delete(
         self,
@@ -62,7 +62,7 @@ class DeleteMedia:
         *,
         force: bool,
         performed_by: uuid.UUID | None,
-    ) -> None:
+    ) -> MediaAsset:
         # In-use guard: refuse while referenced unless the caller forces it.
         if not force and asset.public_id:
             refs = self._repo.find_usage(asset.public_id)
@@ -97,3 +97,4 @@ class DeleteMedia:
                 "forced": force,
             },
         )
+        return asset

@@ -28,7 +28,7 @@ from app.domain.repositories.media_asset_repository import MediaAssetRepository
 _FOLDER_SEGMENT = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
-def _normalize_folder(raw: str) -> str:
+def normalize_folder(raw: str) -> str:
     """Trim/collapse a folder path and validate each segment. Raises
     ValidationError (→ 400 INVALID_FOLDER) for an empty or malformed path."""
     segments = [s for s in raw.strip().strip("/").split("/") if s]
@@ -70,7 +70,7 @@ class UpdateMedia:
         # A file_name or folder edit drives the rename/move.
         if cmd.file_name is not UNSET or cmd.folder is not UNSET:
             new_folder = (
-                _normalize_folder(cmd.folder)
+                normalize_folder(cmd.folder)
                 if cmd.folder is not UNSET
                 else asset.folder
             )

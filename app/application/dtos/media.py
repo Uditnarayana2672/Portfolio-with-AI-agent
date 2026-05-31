@@ -114,6 +114,35 @@ class MediaUsageResult:
 
 
 @dataclass
+class BulkDeleteMediaCommand:
+    """Delete the selected assets, optionally bypassing reference guards."""
+
+    asset_ids: list[uuid.UUID]
+    force: bool = False
+    performed_by: uuid.UUID | None = None
+
+
+@dataclass
+class BulkDeleteSkippedItem:
+    """One asset the bulk operation intentionally left in place."""
+
+    id: uuid.UUID
+    reason: str
+    usage_count: int = 0
+    references: list[UsageReferenceView] = field(default_factory=list)
+
+
+@dataclass
+class BulkDeleteMediaResult:
+    """Per-item bulk deletion outcome for the media-library bulk bar."""
+
+    deleted: list[uuid.UUID]
+    skipped: list[BulkDeleteSkippedItem]
+    deleted_count: int
+    freed_bytes: int
+
+
+@dataclass
 class StorageStatsView:
     """The Cloudinary storage banner: bytes used vs. the plan's quota."""
 
@@ -187,6 +216,32 @@ class UpdateMediaResult:
     asset: MediaAssetView
     renamed: bool
     rename_note: str | None = None
+
+
+@dataclass
+class BulkUpdateMediaCommand:
+    """Apply the same folder and/or alt text edit to selected assets."""
+
+    asset_ids: list[uuid.UUID]
+    folder: Any = UNSET
+    alt_text: Any = UNSET
+
+
+@dataclass
+class BulkUpdateRenamedItem:
+    """One selected asset whose move required a collision-safe suffix."""
+
+    id: uuid.UUID
+    rename_note: str
+
+
+@dataclass
+class BulkUpdateMediaResult:
+    """Refreshed assets plus collision notes for the media-library bulk bar."""
+
+    updated_count: int
+    renamed: list[BulkUpdateRenamedItem]
+    assets: list[MediaAssetView]
 
 
 @dataclass
