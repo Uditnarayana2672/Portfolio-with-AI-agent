@@ -67,6 +67,8 @@ class MediaAssetView:
     folder: str
     alt_text: str | None
     source_type: str
+    external_id: str | None
+    video_title: str | None
     thumbnail_url: str | None
     video_duration_seconds: int | None
     is_orphan: bool

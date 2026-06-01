@@ -25,6 +25,8 @@ def to_media_view(item: MediaAssetListItem) -> MediaAssetView:
         folder=a.folder,
         alt_text=a.alt_text,
         source_type=a.source_type,
+        external_id=a.external_id,
+        video_title=a.video_title,
         thumbnail_url=a.thumbnail_url,
         video_duration_seconds=a.video_duration_seconds,
         is_orphan=a.is_orphan,
