@@ -31,10 +31,19 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def get_db():
-    """FastAPI dependency: gives an endpoint a database session, then makes
-    sure it's always closed afterwards — even if an error happens."""
+    """FastAPI dependency: gives an endpoint a database session, commits on a
+    clean request, rolls back if anything raised, and always closes.
+
+    Making the request the transaction boundary keeps the domain/application
+    layers free of commit/rollback concerns — repositories only add & flush.
+    Read-only endpoints commit a no-op, which is harmless.
+    """
     db = SessionLocal()
     try:
         yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()

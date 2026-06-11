@@ -7,14 +7,15 @@ This is the ONLY place the Cloudinary SDK is imported. Credentials come from
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import IO, Any
 
 import cloudinary
 import cloudinary.api
 import cloudinary.uploader
 import cloudinary.utils
+from cloudinary.exceptions import Error as CloudinaryError
 
-from app.application.interfaces.image_storage import ImageStorage
+from app.application.interfaces.image_storage import ImageStorage, StorageError
 from app.infrastructure.config import settings
 
 
@@ -47,18 +48,43 @@ class CloudinaryImageStorage(ImageStorage):
 
     def upload(
         self,
-        source: str,
+        source: str | bytes | IO[bytes],
         *,
         folder: str | None = None,
         public_id: str | None = None,
         **options: Any,
     ) -> dict[str, Any]:
-        return cloudinary.uploader.upload(
-            source,
-            folder=folder or settings.CLOUDINARY_DEFAULT_FOLDER,
-            public_id=public_id,
-            **options,
-        )
+        try:
+            return cloudinary.uploader.upload(
+                source,
+                folder=folder or settings.CLOUDINARY_DEFAULT_FOLDER,
+                public_id=public_id,
+                **options,
+            )
+        except CloudinaryError as exc:
+            # Normalise the SDK error to a provider-agnostic StorageError so the
+            # use case can retry without importing Cloudinary.
+            raise StorageError(str(exc), request_id=self._request_id(exc)) from exc
+
+    def rename(
+        self,
+        from_public_id: str,
+        to_public_id: str,
+        *,
+        resource_type: str = "image",
+        **options: Any,
+    ) -> dict[str, Any]:
+        try:
+            # overwrite defaults to False, so a target collision raises rather
+            # than clobbering an existing asset — the caller pre-resolves names.
+            return cloudinary.uploader.rename(
+                from_public_id,
+                to_public_id,
+                resource_type=resource_type,
+                **options,
+            )
+        except CloudinaryError as exc:
+            raise StorageError(str(exc), request_id=self._request_id(exc)) from exc
 
     def get_details(self, public_id: str) -> dict[str, Any]:
         return cloudinary.api.resource(public_id)
@@ -75,4 +101,17 @@ class CloudinaryImageStorage(ImageStorage):
         return url
 
     def delete(self, public_id: str) -> dict[str, Any]:
-        return cloudinary.uploader.destroy(public_id)
+        try:
+            return cloudinary.uploader.destroy(public_id)
+        except CloudinaryError as exc:
+            raise StorageError(str(exc), request_id=self._request_id(exc)) from exc
+
+    @staticmethod
+    def _request_id(exc: CloudinaryError) -> str | None:
+        """Pull Cloudinary's correlation id off the SDK error's response, if any,
+        so a StorageError can surface it for support tickets."""
+        response = getattr(exc, "response", None)
+        if response is None:
+            return None
+        headers = getattr(response, "headers", {}) or {}
+        return headers.get("X-Cld-Request-Id") or headers.get("x-cld-request-id")
