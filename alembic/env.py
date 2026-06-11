@@ -15,7 +15,10 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Migrations use the session-mode (direct) connection; fall back to DATABASE_URL.
-config.set_main_option("sqlalchemy.url", settings.DIRECT_URL or settings.DATABASE_URL)
+# Escape any literal '%' (e.g. '%25' in a URL-encoded password) to '%%' so
+# configparser's ConfigParser interpolation doesn't choke when storing the URL.
+_db_url = settings.DIRECT_URL or settings.DATABASE_URL
+config.set_main_option("sqlalchemy.url", _db_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 
