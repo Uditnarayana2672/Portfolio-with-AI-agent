@@ -19,8 +19,22 @@ class ConflictError(DomainError):
     """The operation conflicts with current state, e.g. duplicate (→ HTTP 409)."""
 
 
+class SlugTakenError(ConflictError):
+    """A slug is already owned by another project (→ HTTP 409 with suggested alternative)."""
+
+    def __init__(self, slug: str, suggested: str) -> None:
+        super().__init__(f"Slug {slug!r} is already in use")
+        self.slug = slug
+        self.suggested = suggested
+
+
 class ValidationError(DomainError):
     """Input violates a business rule (→ HTTP 422)."""
+
+
+class CodeTooLongError(ValidationError):
+    """A code block's content exceeds the 50,000-character cap
+    (→ HTTP 422 with error code ``CODE_TOO_LONG``)."""
 
 
 class MediaInUseError(ConflictError):

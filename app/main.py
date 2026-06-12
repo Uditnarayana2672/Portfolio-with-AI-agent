@@ -59,9 +59,11 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         headers["Access-Control-Allow-Origin"] = origin
         headers["Access-Control-Allow-Credentials"] = "true"
         headers["Vary"] = "Origin"
+    # Never echo str(exc) to the client: raw exception text can leak SQL,
+    # file paths, or credentials. The full traceback is in the server log.
     return JSONResponse(
         status_code=500,
-        content={"code": "INTERNAL_ERROR", "message": str(exc) or exc.__class__.__name__},
+        content={"code": "INTERNAL_ERROR", "message": "An internal error occurred."},
         headers=headers,
     )
 

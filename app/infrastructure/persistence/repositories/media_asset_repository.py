@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import datetime
 
+from typing import List
+
 from sqlalchemy import Text, asc, cast, desc, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -124,13 +126,13 @@ class SqlAlchemyMediaAssetRepository(MediaAssetRepository):
         asset, name = row
         return MediaAssetListItem(asset=self._to_entity(asset), uploaded_by_name=name)
 
-    def find_usage(self, public_id: str) -> list[MediaUsageRef]:
+    def find_usage(self, public_id: str) -> List[MediaUsageRef]:  # `List` avoids shadowing by the `list` method
         # A blank public_id (e.g. a YouTube asset) would make strpos(col, '')
         # match every row, so short-circuit to "no references".
         if not public_id:
             return []
 
-        refs: list[MediaUsageRef] = []
+        refs: List[MediaUsageRef] = []
 
         # 1) project thumbnails
         for pid, title in self._db.execute(

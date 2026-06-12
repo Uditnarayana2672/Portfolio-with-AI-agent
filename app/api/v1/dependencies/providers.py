@@ -32,8 +32,16 @@ from app.application.use_cases.media.import_url_media import ImportUrlMedia
 from app.application.use_cases.media.list_media import ListMedia
 from app.application.use_cases.media.update_media import UpdateMedia
 from app.application.use_cases.media.upload_media import UploadMedia
+from app.application.use_cases.projects.add_block import AddBlock
+from app.application.use_cases.projects.create_project import CreateProject
+from app.application.use_cases.projects.delete_block import DeleteBlock
+from app.application.use_cases.projects.delete_project import DeleteProject
+from app.application.use_cases.projects.get_project import GetProject
+from app.application.use_cases.projects.update_project import UpdateProject
 from app.domain.repositories.activity_log_repository import ActivityLogRepository
+from app.domain.repositories.block_repository import BlockRepository
 from app.domain.repositories.media_asset_repository import MediaAssetRepository
+from app.domain.repositories.project_repository import ProjectRepository
 from app.infrastructure.config import settings
 from app.infrastructure.external.cloudinary_storage import CloudinaryImageStorage
 from app.infrastructure.external.safe_url_fetcher import SafeHttpUrlFetcher
@@ -44,6 +52,12 @@ from app.infrastructure.persistence.repositories.activity_log_repository import 
 )
 from app.infrastructure.persistence.repositories.media_asset_repository import (
     SqlAlchemyMediaAssetRepository,
+)
+from app.infrastructure.persistence.repositories.block_repository import (
+    SqlAlchemyBlockRepository,
+)
+from app.infrastructure.persistence.repositories.project_repository import (
+    SqlAlchemyProjectRepository,
 )
 
 
@@ -151,3 +165,61 @@ def get_import_url_media(
         fetcher=fetcher,
         video_metadata=video_metadata,
     )
+
+
+# ── projects ──────────────────────────────────────────────────────────────────
+
+
+def get_project_repository(db: Session = Depends(get_db)) -> ProjectRepository:
+    """Bind the SQLAlchemy project repository to the request's DB session."""
+    return SqlAlchemyProjectRepository(db)
+
+
+def get_create_project(
+    repo: ProjectRepository = Depends(get_project_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+) -> CreateProject:
+    return CreateProject(repo=repo, activity=activity)
+
+
+def get_get_project(
+    repo: ProjectRepository = Depends(get_project_repository),
+) -> GetProject:
+    return GetProject(repo=repo)
+
+
+def get_update_project(
+    repo: ProjectRepository = Depends(get_project_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+) -> UpdateProject:
+    return UpdateProject(repo=repo, activity=activity)
+
+
+def get_delete_project(
+    repo: ProjectRepository = Depends(get_project_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+) -> DeleteProject:
+    return DeleteProject(repo=repo, activity=activity)
+
+
+# ── blocks ────────────────────────────────────────────────────────────────────
+
+
+def get_block_repository(db: Session = Depends(get_db)) -> BlockRepository:
+    return SqlAlchemyBlockRepository(db)
+
+
+def get_add_block(
+    project_repo: ProjectRepository = Depends(get_project_repository),
+    block_repo: BlockRepository = Depends(get_block_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+) -> AddBlock:
+    return AddBlock(project_repo=project_repo, block_repo=block_repo, activity=activity)
+
+
+def get_delete_block(
+    project_repo: ProjectRepository = Depends(get_project_repository),
+    block_repo: BlockRepository = Depends(get_block_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+) -> DeleteBlock:
+    return DeleteBlock(project_repo=project_repo, block_repo=block_repo, activity=activity)
