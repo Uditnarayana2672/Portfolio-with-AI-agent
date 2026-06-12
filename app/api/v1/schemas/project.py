@@ -79,6 +79,28 @@ class CreateProjectRequest(BaseModel):
         return v
 
 
+class AddBlockRequest(BaseModel):
+    block_type: str = Field(
+        ...,
+        description=(
+            "One of the 13 supported block types: hero, text, image, gallery, "
+            "video, code, timeline, stats, poll, quote, comparison, cta, form."
+        ),
+    )
+    position: int = Field(
+        ...,
+        ge=0,
+        description=(
+            "Zero-based position in the page (0 = first). Values past the end "
+            "are clamped to append; existing blocks at this position shift down."
+        ),
+    )
+    config: dict = Field(
+        ...,
+        description="Type-specific config, validated against the schema for `block_type`.",
+    )
+
+
 class UpdateProjectRequest(BaseModel):
     title: str | None = None
     slug: str | None = None

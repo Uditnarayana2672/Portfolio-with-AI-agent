@@ -32,6 +32,11 @@ class ValidationError(DomainError):
     """Input violates a business rule (→ HTTP 422)."""
 
 
+class CodeTooLongError(ValidationError):
+    """A code block's content exceeds the 50,000-character cap
+    (→ HTTP 422 with error code ``CODE_TOO_LONG``)."""
+
+
 class MediaInUseError(ConflictError):
     """A media asset is still referenced and ``force`` was not set (→ HTTP 409).
 

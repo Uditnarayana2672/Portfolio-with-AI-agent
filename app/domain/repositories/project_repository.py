@@ -63,6 +63,8 @@ class ProjectRepository(ABC):
 
     @abstractmethod
     def delete(self, project_id: uuid.UUID) -> None:
-        """Permanently delete a project. The DB cascade removes all child blocks.
+        """Permanently delete a project and all of its child blocks. The FK on
+        project_blocks has no ON DELETE CASCADE, so the implementation must
+        remove the blocks explicitly (in the same transaction) before the project.
         Callers must confirm the row exists before calling. Flushes; the request
         session commits."""

@@ -27,6 +27,26 @@ ALLOWED_UPDATE_STATUS: frozenset[str] = frozenset({
     "published",
 })
 
+SUPPORTED_BLOCK_TYPES: frozenset[str] = frozenset({
+    "hero",
+    "text",
+    "image",
+    "gallery",
+    "video",
+    "code",
+    "timeline",
+    "stats",
+    "poll",
+    "quote",
+    "comparison",
+    "cta",
+    "form",
+})
+
+MAX_POLL_OPTIONS = 6
+MIN_POLL_OPTIONS = 2
+MAX_CODE_LENGTH = 50_000
+
 
 @dataclass(frozen=True)
 class SeoInput:
@@ -82,6 +102,15 @@ class BlockResult:
     config: dict
     created_at: datetime.datetime
     updated_at: datetime.datetime
+
+
+@dataclass
+class AddBlockCommand:
+    project_id: uuid.UUID
+    requester_id: uuid.UUID
+    block_type: str
+    position: int
+    config: dict
 
 
 @dataclass

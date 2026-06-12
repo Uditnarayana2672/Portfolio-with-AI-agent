@@ -70,6 +70,11 @@ class SqlAlchemyProjectRepository(ProjectRepository):
         return self._to_entity(row), [self._block_to_entity(b) for b in blocks]
 
     def delete(self, project_id: uuid.UUID) -> None:
+        # The project_blocks FK has no ON DELETE CASCADE (see 001_initial_schema),
+        # so delete the children first or the project delete violates the FK.
+        self._db.execute(
+            sa_delete(ProjectBlocks).where(ProjectBlocks.project_id == project_id)
+        )
         self._db.execute(sa_delete(Projects).where(Projects.id == project_id))
         self._db.flush()
 

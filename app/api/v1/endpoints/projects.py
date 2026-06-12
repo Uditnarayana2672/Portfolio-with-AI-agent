@@ -8,10 +8,13 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import ValidationError as PydanticValidationError
 
 from app.api.v1.dependencies.auth import get_current_admin
-from app.api.v1.dependencies.providers import get_create_project, get_delete_project, get_get_project, get_update_project
+from app.api.v1.dependencies.providers import get_add_block, get_create_project, get_delete_block, get_delete_project, get_get_project, get_update_project
+from app.api.v1.schemas.block_config import BLOCK_CONFIG_MODELS
 from app.api.v1.schemas.project import (
+    AddBlockRequest,
     BlockResponse,
     CreateProjectRequest,
     CreateProjectResponse,
@@ -20,12 +23,14 @@ from app.api.v1.schemas.project import (
     UpdateProjectRequest,
     UpdateProjectResponse,
 )
-from app.application.dtos.project import CreateProjectCommand, SeoInput, UpdateProjectCommand
+from app.application.dtos.project import AddBlockCommand, CreateProjectCommand, SeoInput, UpdateProjectCommand
+from app.application.use_cases.projects.add_block import AddBlock
 from app.application.use_cases.projects.create_project import CreateProject
+from app.application.use_cases.projects.delete_block import DeleteBlock
 from app.application.use_cases.projects.delete_project import DeleteProject
 from app.application.use_cases.projects.get_project import GetProject
 from app.application.use_cases.projects.update_project import UpdateProject
-from app.domain.exceptions import NotFoundError, PermissionError, SlugTakenError, ValidationError
+from app.domain.exceptions import CodeTooLongError, NotFoundError, PermissionError, SlugTakenError, ValidationError
 from app.infrastructure.persistence.orm.models import Users
 
 router = APIRouter(prefix="/admin/projects", tags=["Projects"])
@@ -99,6 +104,92 @@ def create_project(
         blocks=[],
         author_id=result.author_id,
         published_at=result.published_at,
+        created_at=result.created_at,
+        updated_at=result.updated_at,
+    )
+
+
+@router.post(
+    "/{project_id}/blocks",
+    status_code=status.HTTP_201_CREATED,
+    response_model=BlockResponse,
+    summary="Add a block to a project",
+    description=(
+        "Add a new content block to a project. There are 13 supported block "
+        "types (hero, text, image, gallery, video, code, timeline, stats, poll, "
+        "quote, comparison, cta, form); the `config` object is validated against "
+        "the schema for the given `block_type`. `position` controls placement "
+        "(0 = first): existing blocks at or after it shift down by one, and a "
+        "position past the end is clamped to append."
+    ),
+)
+def add_block(
+    project_id: uuid.UUID,
+    body: AddBlockRequest,
+    current_admin: Users = Depends(get_current_admin),
+    use_case: AddBlock = Depends(get_add_block),
+) -> BlockResponse:
+    config_model = BLOCK_CONFIG_MODELS.get(body.block_type)
+    if config_model is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "VALIDATION_ERROR",
+                "message": f"block_type '{body.block_type}' is not supported",
+            },
+        )
+
+    try:
+        config = config_model.model_validate(body.config)
+    except PydanticValidationError as exc:
+        first = exc.errors()[0]
+        loc = ".".join(str(part) for part in first["loc"])
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "VALIDATION_ERROR",
+                "message": f"{body.block_type}.{loc}: {first['msg']}" if loc
+                else f"{body.block_type} config: {first['msg']}",
+            },
+        ) from exc
+
+    cmd = AddBlockCommand(
+        project_id=project_id,
+        requester_id=current_admin.id,
+        block_type=body.block_type,
+        position=body.position,
+        config=config.model_dump(),
+    )
+
+    try:
+        result = use_case.execute(cmd)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "PROJECT_NOT_FOUND", "message": str(exc)},
+        ) from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "FORBIDDEN", "message": str(exc)},
+        ) from exc
+    except CodeTooLongError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "CODE_TOO_LONG", "message": str(exc)},
+        ) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": str(exc)},
+        ) from exc
+
+    return BlockResponse(
+        id=result.id,
+        project_id=result.project_id,
+        block_type=result.block_type,
+        position=result.position,
+        config=result.config,
         created_at=result.created_at,
         updated_at=result.updated_at,
     )
@@ -231,6 +322,36 @@ def update_project(
         updated_at=result.updated_at,
         warnings=result.warnings,
     )
+
+
+@router.delete(
+    "/{project_id}/blocks/{block_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a block",
+    description=(
+        "Permanently remove a content block from a project. "
+        "Remaining blocks keep their positions — call the reorder endpoint afterwards "
+        "to normalize if needed. A project with zero blocks is valid."
+    ),
+)
+def delete_block(
+    project_id: uuid.UUID,
+    block_id: uuid.UUID,
+    current_admin: Users = Depends(get_current_admin),
+    use_case: DeleteBlock = Depends(get_delete_block),
+) -> None:
+    try:
+        use_case.execute(project_id, block_id, current_admin.id)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "BLOCK_NOT_FOUND", "message": str(exc)},
+        ) from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "FORBIDDEN", "message": str(exc)},
+        ) from exc
 
 
 @router.get(

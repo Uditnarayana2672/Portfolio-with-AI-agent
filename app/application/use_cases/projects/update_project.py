@@ -60,7 +60,11 @@ class UpdateProject:
             changes["title"] = title.strip()
 
         if "slug" in fields:
-            new_slug = fields["slug"].strip()
+            raw_slug = fields["slug"]
+            # `slug: null` (or blank) must 422, not crash on .strip() → 500.
+            if not isinstance(raw_slug, str) or not raw_slug.strip():
+                raise ValidationError("slug must not be empty.")
+            new_slug = raw_slug.strip()
             if new_slug != project.slug:
                 if self._repo.slug_exists_excluding(new_slug, project.id):
                     suggested = self._suggest_slug(new_slug, project.id)
@@ -93,11 +97,20 @@ class UpdateProject:
             if st == "published" and project.published_at is None:
                 changes["published_at"] = datetime.datetime.now(datetime.timezone.utc)
 
-        for key in ("excerpt", "thumbnail_url", "github_url", "demo_url", "is_featured"):
+        for key in ("excerpt", "thumbnail_url", "github_url", "demo_url"):
             if key in fields:
                 changes[key] = fields[key]
 
+        if "is_featured" in fields:
+            # NULL would violate the NOT NULL column constraint → 500.
+            if not isinstance(fields["is_featured"], bool):
+                raise ValidationError("is_featured must be a boolean.")
+            changes["is_featured"] = fields["is_featured"]
+
         if "tech_stack" in fields:
+            # `tech_stack: null` must 422, not crash on list(None) → 500.
+            if fields["tech_stack"] is None:
+                raise ValidationError("tech_stack must be a list of strings.")
             changes["tech_stack"] = list(fields["tech_stack"])
 
         if "seo" in fields:
