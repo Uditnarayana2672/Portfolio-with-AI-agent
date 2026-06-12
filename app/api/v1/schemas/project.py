@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import uuid
 
 from pydantic import BaseModel, Field, field_serializer, field_validator
@@ -79,6 +80,9 @@ class CreateProjectRequest(BaseModel):
         return v
 
 
+_CONFIG_MAX_BYTES = 65_536  # 64 KB — guards against oversized JSONB payloads
+
+
 class AddBlockRequest(BaseModel):
     block_type: str = Field(
         ...,
@@ -99,6 +103,13 @@ class AddBlockRequest(BaseModel):
         ...,
         description="Type-specific config, validated against the schema for `block_type`.",
     )
+
+    @field_validator("config")
+    @classmethod
+    def config_not_too_large(cls, v: dict) -> dict:
+        if len(json.dumps(v, separators=(",", ":"))) > _CONFIG_MAX_BYTES:
+            raise ValueError("config must not exceed 64 KB")
+        return v
 
 
 class UpdateProjectRequest(BaseModel):

@@ -198,6 +198,7 @@ def add_block(
 @router.delete(
     "/{project_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     summary="Delete a project",
     description=(
         "Permanently delete a project and all its content blocks (cascade). "
@@ -327,6 +328,7 @@ def update_project(
 @router.delete(
     "/{project_id}/blocks/{block_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     summary="Delete a block",
     description=(
         "Permanently remove a content block from a project. "
