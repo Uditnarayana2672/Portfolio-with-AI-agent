@@ -1,6 +1,7 @@
 """SQLAlchemy implementation of BlockRepository (infrastructure layer)."""
 from __future__ import annotations
 
+import datetime
 import uuid
 
 from sqlalchemy import delete as sa_delete, func, select, update as sa_update
@@ -62,6 +63,35 @@ class SqlAlchemyBlockRepository(BlockRepository):
         self._db.add(row)
         # Flush (not commit) so the DB assigns id/created_at while leaving the
         # request's transaction open — get_db commits once the request succeeds.
+        self._db.flush()
+        self._db.refresh(row)
+        return Block(
+            id=row.id,
+            project_id=row.project_id,
+            block_type=row.block_type,
+            position=row.position,
+            config=dict(row.config or {}),
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+    def update_block(
+        self,
+        block_id: uuid.UUID,
+        *,
+        config: dict | None = None,
+        position: int | None = None,
+    ) -> Block:
+        row = self._db.get(ProjectBlocks, block_id)
+        if row is None:
+            raise RuntimeError(f"Block {block_id} vanished between load and update")
+        if config is not None:
+            row.config = config
+        if position is not None:
+            row.position = position
+        # No onupdate on the column, so stamp updated_at explicitly (mirrors the
+        # project repo). Concurrent writers: last flush wins, updated_at follows.
+        row.updated_at = datetime.datetime.now(datetime.timezone.utc)
         self._db.flush()
         self._db.refresh(row)
         return Block(

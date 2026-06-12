@@ -118,6 +118,18 @@ class AddBlockCommand:
 
 
 @dataclass
+class UpdateBlockCommand:
+    project_id: uuid.UUID
+    block_id: uuid.UUID
+    requester_id: uuid.UUID
+    # None means "field omitted — leave unchanged". For config, an empty dict
+    # ({}) is distinct from None: it is a provided-but-empty partial (no-op
+    # merge), whereas None means the config key was absent from the request.
+    position: int | None = None
+    config: dict | None = None
+
+
+@dataclass
 class UpdateProjectCommand:
     project_id: uuid.UUID
     requester_id: uuid.UUID

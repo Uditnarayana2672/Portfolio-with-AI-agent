@@ -122,6 +122,31 @@ class ToggleFeatureRequest(BaseModel):
     )
 
 
+class UpdateBlockRequest(BaseModel):
+    # Both fields optional — send only what changed. `block_type` is deliberately
+    # absent: it is immutable, and Pydantic silently drops unknown keys, so a
+    # `block_type` in the body is discarded rather than rejected.
+    position: int | None = Field(
+        None,
+        ge=0,
+        description="New zero-based position. Omit to leave unchanged.",
+    )
+    config: dict | None = Field(
+        None,
+        description=(
+            "Partial config — merged onto the stored config, then re-validated "
+            "against the block's type. Omit to leave unchanged; `{}` is a no-op."
+        ),
+    )
+
+    @field_validator("config")
+    @classmethod
+    def config_not_too_large(cls, v: dict | None) -> dict | None:
+        if v is not None and len(json.dumps(v, separators=(",", ":"))) > _CONFIG_MAX_BYTES:
+            raise ValueError("config must not exceed 64 KB")
+        return v
+
+
 class UpdateProjectRequest(BaseModel):
     title: str | None = None
     slug: str | None = None

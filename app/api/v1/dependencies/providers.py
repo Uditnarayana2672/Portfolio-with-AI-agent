@@ -36,9 +36,12 @@ from app.application.use_cases.projects.add_block import AddBlock
 from app.application.use_cases.projects.create_project import CreateProject
 from app.application.use_cases.projects.delete_block import DeleteBlock
 from app.application.use_cases.projects.delete_project import DeleteProject
+from app.application.interfaces.block_config_validator import BlockConfigValidator
 from app.application.use_cases.projects.get_project import GetProject
 from app.application.use_cases.projects.toggle_feature import ToggleFeature
+from app.application.use_cases.projects.update_block import UpdateBlock
 from app.application.use_cases.projects.update_project import UpdateProject
+from app.api.v1.schemas.block_config import PydanticBlockConfigValidator
 from app.domain.repositories.activity_log_repository import ActivityLogRepository
 from app.domain.repositories.block_repository import BlockRepository
 from app.domain.repositories.media_asset_repository import MediaAssetRepository
@@ -231,3 +234,20 @@ def get_delete_block(
     activity: ActivityLogRepository = Depends(get_activity_repository),
 ) -> DeleteBlock:
     return DeleteBlock(project_repo=project_repo, block_repo=block_repo, activity=activity)
+
+
+def get_block_config_validator() -> BlockConfigValidator:
+    """Provide the Pydantic-backed block config validator (UpdateBlock)."""
+    return PydanticBlockConfigValidator()
+
+
+def get_update_block(
+    block_repo: BlockRepository = Depends(get_block_repository),
+    config_validator: BlockConfigValidator = Depends(get_block_config_validator),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+) -> UpdateBlock:
+    return UpdateBlock(
+        block_repo=block_repo,
+        config_validator=config_validator,
+        activity=activity,
+    )

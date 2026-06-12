@@ -13,7 +13,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api.v1.dependencies.auth import get_current_admin
-from app.api.v1.dependencies.providers import get_add_block, get_create_project, get_delete_block, get_delete_project, get_get_project, get_toggle_feature, get_update_project
+from app.api.v1.dependencies.providers import get_add_block, get_create_project, get_delete_block, get_delete_project, get_get_project, get_toggle_feature, get_update_block, get_update_project
 from app.api.v1.schemas.block_config import BLOCK_CONFIG_MODELS
 from app.api.v1.schemas.project import (
     AddBlockRequest,
@@ -24,16 +24,18 @@ from app.api.v1.schemas.project import (
     SeoResponse,
     ToggleFeatureRequest,
     ToggleFeatureResponse,
+    UpdateBlockRequest,
     UpdateProjectRequest,
     UpdateProjectResponse,
 )
-from app.application.dtos.project import MAX_FEATURED_PROJECTS, AddBlockCommand, CreateProjectCommand, SeoInput, ToggleFeatureCommand, UpdateProjectCommand
+from app.application.dtos.project import MAX_FEATURED_PROJECTS, AddBlockCommand, CreateProjectCommand, SeoInput, ToggleFeatureCommand, UpdateBlockCommand, UpdateProjectCommand
 from app.application.use_cases.projects.add_block import AddBlock
 from app.application.use_cases.projects.create_project import CreateProject
 from app.application.use_cases.projects.delete_block import DeleteBlock
 from app.application.use_cases.projects.delete_project import DeleteProject
 from app.application.use_cases.projects.get_project import GetProject
 from app.application.use_cases.projects.toggle_feature import ToggleFeature
+from app.application.use_cases.projects.update_block import UpdateBlock
 from app.application.use_cases.projects.update_project import UpdateProject
 from app.domain.exceptions import CodeTooLongError, ConflictError, NotFoundError, PermissionError, SlugTakenError, ValidationError
 from app.infrastructure.persistence.orm.models import Users
@@ -423,6 +425,65 @@ def delete_block(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "FORBIDDEN", "message": str(exc)},
         ) from exc
+
+
+@router.put(
+    "/{project_id}/blocks/{block_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=BlockResponse,
+    summary="Update a block",
+    description=(
+        "Update an existing block's `config` and/or `position`. Both fields are "
+        "optional — send only what changed. `block_type` is immutable and is "
+        "silently ignored if present. The incoming `config` is shallow-merged "
+        "onto the stored config (so a partial update never wipes untouched "
+        "keys) and re-validated against the block's type before saving; an "
+        "empty `config` `{}` is a valid no-op. A block on a different project "
+        "is reported as `404 BLOCK_NOT_FOUND` (its existence is never leaked)."
+    ),
+)
+def update_block(
+    project_id: uuid.UUID,
+    block_id: uuid.UUID,
+    body: UpdateBlockRequest,
+    current_admin: Users = Depends(get_current_admin),
+    use_case: UpdateBlock = Depends(get_update_block),
+) -> BlockResponse:
+    cmd = UpdateBlockCommand(
+        project_id=project_id,
+        block_id=block_id,
+        requester_id=current_admin.id,
+        position=body.position,
+        config=body.config,
+    )
+
+    try:
+        result = use_case.execute(cmd)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "BLOCK_NOT_FOUND", "message": str(exc)},
+        ) from exc
+    except CodeTooLongError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "CODE_TOO_LONG", "message": str(exc)},
+        ) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": str(exc)},
+        ) from exc
+
+    return BlockResponse(
+        id=result.id,
+        project_id=result.project_id,
+        block_type=result.block_type,
+        position=result.position,
+        config=result.config,
+        created_at=result.created_at,
+        updated_at=result.updated_at,
+    )
 
 
 @router.get(

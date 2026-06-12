@@ -17,7 +17,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
+
+from app.application.interfaces.block_config_validator import BlockConfigValidator
+from app.domain.exceptions import ValidationError
 
 
 class HeroConfig(BaseModel):
@@ -175,3 +178,24 @@ BLOCK_CONFIG_MODELS: dict[str, type[BaseModel]] = {
     "cta": CtaConfig,
     "form": FormConfig,
 }
+
+
+class PydanticBlockConfigValidator(BlockConfigValidator):
+    """Concrete ``BlockConfigValidator`` backed by ``BLOCK_CONFIG_MODELS``.
+
+    Used by UpdateBlock to re-validate a merged config. ``block_type`` always
+    comes from an already-persisted block, so it is one of the 13 supported
+    types; the unknown-type branch is purely defensive.
+    """
+
+    def validate(self, block_type: str, config: dict) -> dict:
+        model = BLOCK_CONFIG_MODELS.get(block_type)
+        if model is None:
+            raise ValidationError(f"block_type '{block_type}' is not supported")
+        try:
+            validated = model.model_validate(config)
+        except PydanticValidationError as exc:
+            raise ValidationError(
+                f"Invalid config for block type {block_type}"
+            ) from exc
+        return validated.model_dump()
