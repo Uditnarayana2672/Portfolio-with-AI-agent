@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
+from app.domain.entities.block import Block
 from app.domain.entities.project import Project
 
 
@@ -40,3 +41,28 @@ class ProjectRepository(ABC):
     def add(self, new: NewProject) -> Project:
         """Persist a new project and return it with server-assigned id/timestamps.
         Flushes so the id is available; the request's session owns the commit."""
+
+    @abstractmethod
+    def get_with_blocks(self, project_id: uuid.UUID) -> tuple[Project, list[Block]] | None:
+        """Return (project, blocks ordered by position) or None if not found."""
+
+    @abstractmethod
+    def slug_exists_excluding(self, slug: str, exclude_id: uuid.UUID) -> bool:
+        """True if a *different* project already owns this slug. Used during update
+        so the project's own current slug does not trigger a false collision."""
+
+    @abstractmethod
+    def update(self, project_id: uuid.UUID, changes: dict) -> tuple[Project, list[Block]]:
+        """Apply a partial update to an existing project.
+
+        ``changes`` maps column names to new values. ``seo`` (if present) has
+        already been merged with the existing value by the use case. Returns
+        (updated_project, blocks_ordered_by_position). Callers must confirm the
+        row exists before calling. Flushes; the request session commits.
+        """
+
+    @abstractmethod
+    def delete(self, project_id: uuid.UUID) -> None:
+        """Permanently delete a project. The DB cascade removes all child blocks.
+        Callers must confirm the row exists before calling. Flushes; the request
+        session commits."""

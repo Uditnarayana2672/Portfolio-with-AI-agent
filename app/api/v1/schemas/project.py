@@ -79,6 +79,21 @@ class CreateProjectRequest(BaseModel):
         return v
 
 
+class UpdateProjectRequest(BaseModel):
+    title: str | None = None
+    slug: str | None = None
+    excerpt: str | None = None
+    thumbnail_url: str | None = None
+    tech_stack: list[str] | None = None
+    template_id: str | None = None
+    github_url: str | None = None
+    demo_url: str | None = None
+    status: str | None = None
+    visibility: str | None = None
+    is_featured: bool | None = None
+    seo: SeoRequest | None = None
+
+
 # ── response shapes ────────────────────────────────────────────────────────────
 
 
@@ -87,6 +102,20 @@ class SeoResponse(BaseModel):
     meta_description: str | None
     og_image_url: str | None
     canonical_url: str | None
+
+
+class BlockResponse(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    block_type: str
+    position: int
+    config: dict
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    @field_serializer("created_at", "updated_at")
+    def _serialize_dt(self, value: datetime.datetime) -> str:
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class CreateProjectResponse(BaseModel):
@@ -105,6 +134,71 @@ class CreateProjectResponse(BaseModel):
     views: int
     seo: SeoResponse
     blocks: list = Field(default_factory=list, description="Content blocks — always empty on create.")
+    author_id: uuid.UUID
+    published_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    @field_serializer("created_at", "updated_at")
+    def _serialize_dt(self, value: datetime.datetime) -> str:
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @field_serializer("published_at")
+    def _serialize_published_at(self, value: datetime.datetime | None) -> str | None:
+        if value is None:
+            return None
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class UpdateProjectResponse(BaseModel):
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+    tech_stack: list[str]
+    template_id: str
+    github_url: str | None
+    demo_url: str | None
+    status: str
+    visibility: str
+    is_featured: bool
+    views: int
+    seo: SeoResponse
+    blocks: list[BlockResponse]
+    author_id: uuid.UUID
+    published_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_serializer("created_at", "updated_at")
+    def _serialize_dt(self, value: datetime.datetime) -> str:
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @field_serializer("published_at")
+    def _serialize_published_at(self, value: datetime.datetime | None) -> str | None:
+        if value is None:
+            return None
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class GetProjectResponse(BaseModel):
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+    tech_stack: list[str]
+    template_id: str
+    github_url: str | None
+    demo_url: str | None
+    status: str
+    visibility: str
+    is_featured: bool
+    views: int
+    seo: SeoResponse
+    blocks: list[BlockResponse]
     author_id: uuid.UUID
     published_at: datetime.datetime | None
     created_at: datetime.datetime

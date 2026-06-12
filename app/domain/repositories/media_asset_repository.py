@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import List
 
 from app.domain.entities.media_asset import MediaAsset
 
@@ -118,7 +119,7 @@ class MediaAssetRepository(ABC):
         or None if no row matches. Powers the detail drawer."""
 
     @abstractmethod
-    def find_usage(self, public_id: str) -> list[MediaUsageRef]:
+    def find_usage(self, public_id: str) -> List[MediaUsageRef]:
         """Every place this asset's ``public_id`` appears across content:
         project thumbnails & block configs, and blog cover/og images & content.
         One row per match (a project hit via two blocks yields two refs). The

@@ -1,13 +1,18 @@
 """SQLAlchemy implementation of ProjectRepository (infrastructure layer)."""
 from __future__ import annotations
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+import datetime
+import uuid
 
+from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy.orm import Session, selectinload
+
+from app.domain.entities.block import Block
 from app.domain.entities.project import Project
 from app.domain.repositories.project_repository import NewProject, ProjectRepository
 from app.infrastructure.persistence.orm.models import (
     ContentVisibility,
+    ProjectBlocks,
     ProjectStatus,
     Projects,
 )
@@ -48,6 +53,77 @@ class SqlAlchemyProjectRepository(ProjectRepository):
         self._db.flush()
         self._db.refresh(row)
         return self._to_entity(row)
+
+    def get_with_blocks(self, project_id: uuid.UUID) -> tuple[Project, list[Block]] | None:
+        row = (
+            self._db.execute(
+                select(Projects)
+                .where(Projects.id == project_id)
+                .options(selectinload(Projects.project_blocks))
+            )
+            .scalars()
+            .first()
+        )
+        if row is None:
+            return None
+        blocks = sorted(row.project_blocks, key=lambda b: b.position)
+        return self._to_entity(row), [self._block_to_entity(b) for b in blocks]
+
+    def delete(self, project_id: uuid.UUID) -> None:
+        self._db.execute(sa_delete(Projects).where(Projects.id == project_id))
+        self._db.flush()
+
+    def slug_exists_excluding(self, slug: str, exclude_id: uuid.UUID) -> bool:
+        return (
+            self._db.scalar(
+                select(func.count())
+                .select_from(Projects)
+                .where(Projects.slug == slug, Projects.id != exclude_id)
+            )
+            or 0
+        ) > 0
+
+    def update(self, project_id: uuid.UUID, changes: dict) -> tuple[Project, list[Block]]:
+        row = (
+            self._db.execute(
+                select(Projects)
+                .where(Projects.id == project_id)
+                .options(selectinload(Projects.project_blocks))
+            )
+            .scalars()
+            .first()
+        )
+        if row is None:
+            raise RuntimeError(f"Project {project_id} vanished between load and update")
+
+        blocks = sorted(row.project_blocks, key=lambda b: b.position)
+
+        for key, value in changes.items():
+            if key == "status":
+                row.status = ProjectStatus(value)
+            elif key == "visibility":
+                row.visibility = ContentVisibility(value)
+            elif key == "tech_stack":
+                row.tech_stack = list(value)
+            else:
+                setattr(row, key, value)
+
+        row.updated_at = datetime.datetime.now(datetime.timezone.utc)
+        self._db.flush()
+        self._db.refresh(row)
+        return self._to_entity(row), [self._block_to_entity(b) for b in blocks]
+
+    @staticmethod
+    def _block_to_entity(row: ProjectBlocks) -> Block:
+        return Block(
+            id=row.id,
+            project_id=row.project_id,
+            block_type=row.block_type,
+            position=row.position,
+            config=dict(row.config or {}),
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
 
     @staticmethod
     def _to_entity(row: Projects) -> Project:

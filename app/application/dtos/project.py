@@ -22,6 +22,11 @@ ALLOWED_VISIBILITY: frozenset[str] = frozenset({
     "unlisted",
 })
 
+ALLOWED_UPDATE_STATUS: frozenset[str] = frozenset({
+    "draft",
+    "published",
+})
+
 
 @dataclass(frozen=True)
 class SeoInput:
@@ -62,6 +67,71 @@ class CreateProjectResult:
     is_featured: bool
     views: int
     seo: dict
+    author_id: uuid.UUID
+    published_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
+@dataclass(frozen=True)
+class BlockResult:
+    id: uuid.UUID
+    project_id: uuid.UUID
+    block_type: str
+    position: int
+    config: dict
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
+@dataclass
+class UpdateProjectCommand:
+    project_id: uuid.UUID
+    requester_id: uuid.UUID
+    fields: dict
+
+
+@dataclass(frozen=True)
+class UpdateProjectResult:
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+    tech_stack: list[str]
+    template_id: str
+    github_url: str | None
+    demo_url: str | None
+    status: str
+    visibility: str
+    is_featured: bool
+    views: int
+    seo: dict
+    blocks: list[BlockResult]
+    author_id: uuid.UUID
+    published_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    warnings: list[str]
+
+
+@dataclass(frozen=True)
+class GetProjectResult:
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+    tech_stack: list[str]
+    template_id: str
+    github_url: str | None
+    demo_url: str | None
+    status: str
+    visibility: str
+    is_featured: bool
+    views: int
+    seo: dict
+    blocks: list[BlockResult]
     author_id: uuid.UUID
     published_at: datetime.datetime | None
     created_at: datetime.datetime

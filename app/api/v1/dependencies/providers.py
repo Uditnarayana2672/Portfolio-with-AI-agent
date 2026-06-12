@@ -33,6 +33,9 @@ from app.application.use_cases.media.list_media import ListMedia
 from app.application.use_cases.media.update_media import UpdateMedia
 from app.application.use_cases.media.upload_media import UploadMedia
 from app.application.use_cases.projects.create_project import CreateProject
+from app.application.use_cases.projects.delete_project import DeleteProject
+from app.application.use_cases.projects.get_project import GetProject
+from app.application.use_cases.projects.update_project import UpdateProject
 from app.domain.repositories.activity_log_repository import ActivityLogRepository
 from app.domain.repositories.media_asset_repository import MediaAssetRepository
 from app.domain.repositories.project_repository import ProjectRepository
@@ -171,3 +174,23 @@ def get_create_project(
     activity: ActivityLogRepository = Depends(get_activity_repository),
 ) -> CreateProject:
     return CreateProject(repo=repo, activity=activity)
+
+
+def get_get_project(
+    repo: ProjectRepository = Depends(get_project_repository),
+) -> GetProject:
+    return GetProject(repo=repo)
+
+
+def get_update_project(
+    repo: ProjectRepository = Depends(get_project_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+) -> UpdateProject:
+    return UpdateProject(repo=repo, activity=activity)
+
+
+def get_delete_project(
+    repo: ProjectRepository = Depends(get_project_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+) -> DeleteProject:
+    return DeleteProject(repo=repo, activity=activity)

@@ -19,6 +19,15 @@ class ConflictError(DomainError):
     """The operation conflicts with current state, e.g. duplicate (→ HTTP 409)."""
 
 
+class SlugTakenError(ConflictError):
+    """A slug is already owned by another project (→ HTTP 409 with suggested alternative)."""
+
+    def __init__(self, slug: str, suggested: str) -> None:
+        super().__init__(f"Slug {slug!r} is already in use")
+        self.slug = slug
+        self.suggested = suggested
+
+
 class ValidationError(DomainError):
     """Input violates a business rule (→ HTTP 422)."""
 

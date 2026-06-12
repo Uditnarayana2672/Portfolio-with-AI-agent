@@ -1,14 +1,15 @@
-"""Initial schema from portfolio-old
+"""Complete initial schema — matches ORM models exactly.
 
 Revision ID: 001
 Revises:
 Create Date: 2025-05-28 00:00:00.000000
-
 """
+from __future__ import annotations
+
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
-from sqlalchemy import Enum
+from sqlalchemy import text
 
 # revision identifiers
 revision = '001'
@@ -17,460 +18,654 @@ branch_labels = None
 depends_on = None
 
 
+# ---------------------------------------------------------------------------
+# Custom type for pgvector columns
+# ---------------------------------------------------------------------------
+
+class _Vector(sa.types.UserDefinedType):
+    """Emit the PostgreSQL `vector` type for pgvector columns."""
+    cache_ok = True
+
+    def get_col_spec(self, **kw: object) -> str:
+        return "vector"
+
+
+# ---------------------------------------------------------------------------
+# upgrade
+# ---------------------------------------------------------------------------
+
 def upgrade() -> None:
-    # Create enums
-    user_role = Enum('admin', 'viewer', name='user_role')
-    user_role.create(op.get_bind(), checkfirst=True)
+    conn = op.get_bind()
 
-    project_status = Enum('draft', 'published', 'archived', name='project_status')
-    project_status.create(op.get_bind(), checkfirst=True)
+    # ── extensions ──────────────────────────────────────────────────────────
+    conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+    conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+    conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
-    content_visibility = Enum('public', 'members_only', 'unlisted', name='content_visibility')
-    content_visibility.create(op.get_bind(), checkfirst=True)
+    # ── enums ────────────────────────────────────────────────────────────────
+    conn.execute(text("""
+        DO $$ BEGIN
+            CREATE TYPE user_role AS ENUM ('admin', 'viewer');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """))
+    conn.execute(text("""
+        DO $$ BEGIN
+            CREATE TYPE project_status AS ENUM ('draft', 'published', 'archived');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """))
+    conn.execute(text("""
+        DO $$ BEGIN
+            CREATE TYPE content_visibility AS ENUM ('public', 'members_only', 'unlisted');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """))
+    conn.execute(text("""
+        DO $$ BEGIN
+            CREATE TYPE blog_status AS ENUM ('draft', 'review', 'published', 'archived');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """))
+    conn.execute(text("""
+        DO $$ BEGIN
+            CREATE TYPE resource_type AS ENUM ('image', 'video', 'raw');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """))
+    conn.execute(text("""
+        DO $$ BEGIN
+            CREATE TYPE reaction_type AS ENUM ('like', 'love', 'fire', 'clap', 'mind_blown');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """))
+    conn.execute(text("""
+        DO $$ BEGIN
+            CREATE TYPE content_type AS ENUM ('blog_post', 'project');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """))
+    conn.execute(text("""
+        DO $$ BEGIN
+            CREATE TYPE subscriber_status AS ENUM ('active', 'unsubscribed', 'bounced');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """))
+    conn.execute(text("""
+        DO $$ BEGIN
+            CREATE TYPE activity_type AS ENUM (
+                'project_created', 'project_updated', 'project_published', 'project_deleted',
+                'blog_created', 'blog_updated', 'blog_published', 'blog_archived', 'blog_deleted',
+                'media_uploaded', 'media_deleted', 'comment_approved', 'comment_deleted',
+                'subscriber_added', 'contact_received', 'jerry_escalation', 'jerry_booking',
+                'ai_suggestion_accepted'
+            );
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """))
+    conn.execute(text("""
+        DO $$ BEGIN
+            CREATE TYPE note_type AS ENUM (
+                'interest', 'feedback', 'pain_point', 'intent',
+                'budget', 'timeline', 'general'
+            );
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """))
+    conn.execute(text("""
+        DO $$ BEGIN
+            CREATE TYPE escalation_trigger AS ENUM (
+                'explicit_request', 'negative_sentiment', 'repeated_question',
+                'budget_mention', 'urgent_keyword'
+            );
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    """))
 
-    blog_status = Enum('draft', 'review', 'published', 'archived', name='blog_status')
-    blog_status.create(op.get_bind(), checkfirst=True)
+    # ── tables ───────────────────────────────────────────────────────────────
 
-    resource_type = Enum('image', 'video', 'raw', name='resource_type')
-    resource_type.create(op.get_bind(), checkfirst=True)
-
-    reaction_type = Enum('like', 'love', 'fire', 'clap', 'mind_blown', name='reaction_type')
-    reaction_type.create(op.get_bind(), checkfirst=True)
-
-    content_type = Enum('blog_post', 'project', name='content_type')
-    content_type.create(op.get_bind(), checkfirst=True)
-
-    subscriber_status = Enum('active', 'unsubscribed', 'bounced', name='subscriber_status')
-    subscriber_status.create(op.get_bind(), checkfirst=True)
-
-    activity_type = Enum(
-        'project_created', 'project_updated', 'project_published', 'project_deleted',
-        'blog_created', 'blog_updated', 'blog_published', 'blog_archived', 'blog_deleted',
-        'media_uploaded', 'media_deleted', 'comment_approved', 'comment_deleted',
-        'subscriber_added', 'contact_received', 'jerry_escalation', 'jerry_booking',
-        'ai_suggestion_accepted', name='activity_type'
-    )
-    activity_type.create(op.get_bind(), checkfirst=True)
-
-    note_type = Enum('interest', 'feedback', 'pain_point', 'intent', 'budget', 'timeline', 'general', name='note_type')
-    note_type.create(op.get_bind(), checkfirst=True)
-
-    escalation_trigger = Enum('explicit_request', 'negative_sentiment', 'repeated_question', 'budget_mention', 'urgent_keyword', name='escalation_trigger')
-    escalation_trigger.create(op.get_bind(), checkfirst=True)
-
-    # Create users table
-    op.create_table('users',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('email', sa.String(), nullable=False),
-        sa.Column('name', sa.String(), nullable=False),
-        sa.Column('avatar_url', sa.String(), nullable=True),
-        sa.Column('role', user_role, server_default="'admin'::user_role", nullable=False),
-        sa.Column('is_blocked', sa.Boolean(), server_default='false', nullable=False),
+    # users
+    op.create_table(
+        'users',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('email', sa.Text(), nullable=False),
+        sa.Column('name', sa.Text(), nullable=False),
+        sa.Column('role', sa.Text(), server_default=text("'admin'::user_role"), nullable=False),
+        sa.Column('is_blocked', sa.Boolean(), server_default=text('false'), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('avatar_url', sa.Text(), nullable=True),
         sa.Column('last_login_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('email')
+        sa.PrimaryKeyConstraint('id', name='users_pkey'),
+        sa.UniqueConstraint('email', name='users_email_key'),
+    )
+    op.create_index('idx_users_email', 'users', ['email'])
+    op.create_index('idx_users_role', 'users', ['role'])
+
+    # blog_categories
+    op.create_table(
+        'blog_categories',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('name', sa.Text(), nullable=False),
+        sa.Column('slug', sa.Text(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('description', sa.Text(), nullable=True),
+        sa.PrimaryKeyConstraint('id', name='blog_categories_pkey'),
+        sa.UniqueConstraint('name', name='blog_categories_name_key'),
+        sa.UniqueConstraint('slug', name='blog_categories_slug_key'),
     )
 
-    # Create blog_categories table
-    op.create_table('blog_categories',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('name', sa.String(), nullable=False),
-        sa.Column('slug', sa.String(), nullable=False),
-        sa.Column('description', sa.String(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('name'),
-        sa.UniqueConstraint('slug')
-    )
-
-    # Create projects table
-    op.create_table('projects',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('title', sa.String(), nullable=False),
-        sa.Column('slug', sa.String(), nullable=False),
-        sa.Column('excerpt', sa.String(), nullable=True),
-        sa.Column('thumbnail_url', sa.String(), nullable=True),
-        sa.Column('tech_stack', postgresql.ARRAY(sa.String()), server_default="'{}'::text[]", nullable=False),
-        sa.Column('template_id', sa.String(), server_default="'narrative'::text", nullable=False),
-        sa.Column('github_url', sa.String(), nullable=True),
-        sa.Column('demo_url', sa.String(), nullable=True),
-        sa.Column('status', project_status, server_default="'draft'::project_status", nullable=False),
-        sa.Column('visibility', content_visibility, server_default="'public'::content_visibility", nullable=False),
-        sa.Column('is_featured', sa.Boolean(), server_default='false', nullable=False),
-        sa.Column('views', sa.Integer(), server_default='0', nullable=False),
-        sa.Column('seo', postgresql.JSONB(astext_type=sa.Text()), server_default="'{}'::jsonb", nullable=False),
+    # projects
+    op.create_table(
+        'projects',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('title', sa.Text(), nullable=False),
+        sa.Column('slug', sa.Text(), nullable=False),
+        sa.Column('tech_stack', postgresql.ARRAY(sa.Text()), server_default=text("'{}'::text[]"), nullable=False),
+        sa.Column('template_id', sa.Text(), server_default=text("'narrative'::text"), nullable=False),
+        sa.Column('status', sa.Text(), server_default=text("'draft'::project_status"), nullable=False),
+        sa.Column('visibility', sa.Text(), server_default=text("'public'::content_visibility"), nullable=False),
+        sa.Column('is_featured', sa.Boolean(), server_default=text('false'), nullable=False),
+        sa.Column('views', sa.Integer(), server_default=text('0'), nullable=False),
+        sa.Column('seo', postgresql.JSONB(), server_default=text("'{}'::jsonb"), nullable=False),
         sa.Column('author_id', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('excerpt', sa.Text(), nullable=True),
+        sa.Column('thumbnail_url', sa.Text(), nullable=True),
+        sa.Column('github_url', sa.Text(), nullable=True),
+        sa.Column('demo_url', sa.Text(), nullable=True),
         sa.Column('published_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(['author_id'], ['users.id'], ),
-        sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('slug')
+        sa.ForeignKeyConstraint(['author_id'], ['users.id'], name='projects_author_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='projects_pkey'),
+        sa.UniqueConstraint('slug', name='projects_slug_key'),
     )
+    op.create_index('idx_projects_is_featured', 'projects', ['is_featured'])
+    op.create_index('idx_projects_published_at', 'projects', ['published_at'])
+    op.create_index('idx_projects_slug', 'projects', ['slug'])
+    op.create_index('idx_projects_status', 'projects', ['status'])
+    op.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_projects_search ON projects USING gin "
+        "(to_tsvector('english', coalesce(title, '') || ' ' || coalesce(excerpt, '')))"
+    ))
+    op.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_projects_tech_stack ON projects USING gin (tech_stack)"
+    ))
 
-    # Create project_blocks table
-    op.create_table('project_blocks',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+    # project_blocks
+    op.create_table(
+        'project_blocks',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
         sa.Column('project_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('block_type', sa.String(), nullable=False),
-        sa.Column('position', sa.Integer(), server_default='0', nullable=False),
-        sa.Column('config', postgresql.JSONB(astext_type=sa.Text()), server_default="'{}'::jsonb", nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(['project_id'], ['projects.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.Column('block_type', sa.Text(), nullable=False),
+        sa.Column('position', sa.Integer(), server_default=text('0'), nullable=False),
+        sa.Column('config', postgresql.JSONB(), server_default=text("'{}'::jsonb"), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.ForeignKeyConstraint(['project_id'], ['projects.id'], name='project_blocks_project_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='project_blocks_pkey'),
     )
+    op.create_index('idx_project_blocks_project', 'project_blocks', ['project_id'])
+    op.create_index('idx_project_blocks_position', 'project_blocks', ['project_id', 'position'])
 
-    # Create blog_posts table
-    op.create_table('blog_posts',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('title', sa.String(), nullable=False),
-        sa.Column('slug', sa.String(), nullable=False),
-        sa.Column('content', postgresql.JSONB(astext_type=sa.Text()), server_default="'{}'::jsonb", nullable=False),
-        sa.Column('excerpt', sa.String(), nullable=True),
-        sa.Column('cover_image_url', sa.String(), nullable=True),
-        sa.Column('og_image_url', sa.String(), nullable=True),
-        sa.Column('category_id', postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column('tags', postgresql.ARRAY(sa.String()), server_default="'{}'::text[]", nullable=False),
-        sa.Column('status', blog_status, server_default="'draft'::blog_status", nullable=False),
-        sa.Column('visibility', content_visibility, server_default="'public'::content_visibility", nullable=False),
-        sa.Column('read_time', sa.Integer(), nullable=True),
-        sa.Column('views', sa.Integer(), server_default='0', nullable=False),
-        sa.Column('allow_comments', sa.Boolean(), server_default='true', nullable=False),
-        sa.Column('seo', postgresql.JSONB(astext_type=sa.Text()), server_default="'{}'::jsonb", nullable=False),
+    # blog_posts
+    op.create_table(
+        'blog_posts',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('title', sa.Text(), nullable=False),
+        sa.Column('slug', sa.Text(), nullable=False),
+        sa.Column('content', postgresql.JSONB(), server_default=text("'{}'::jsonb"), nullable=False),
+        sa.Column('tags', postgresql.ARRAY(sa.Text()), server_default=text("'{}'::text[]"), nullable=False),
+        sa.Column('status', sa.Text(), server_default=text("'draft'::blog_status"), nullable=False),
+        sa.Column('visibility', sa.Text(), server_default=text("'public'::content_visibility"), nullable=False),
+        sa.Column('views', sa.Integer(), server_default=text('0'), nullable=False),
+        sa.Column('allow_comments', sa.Boolean(), server_default=text('true'), nullable=False),
+        sa.Column('seo', postgresql.JSONB(), server_default=text("'{}'::jsonb"), nullable=False),
         sa.Column('author_id', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('excerpt', sa.Text(), nullable=True),
+        sa.Column('cover_image_url', sa.Text(), nullable=True),
+        sa.Column('og_image_url', sa.Text(), nullable=True),
+        sa.Column('category_id', postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column('read_time', sa.Integer(), nullable=True),
         sa.Column('scheduled_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('published_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(['author_id'], ['users.id'], ),
-        sa.ForeignKeyConstraint(['category_id'], ['blog_categories.id'], ),
-        sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('slug')
+        sa.ForeignKeyConstraint(['author_id'], ['users.id'], name='blog_posts_author_id_fkey'),
+        sa.ForeignKeyConstraint(['category_id'], ['blog_categories.id'], name='blog_posts_category_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='blog_posts_pkey'),
+        sa.UniqueConstraint('slug', name='blog_posts_slug_key'),
     )
+    op.create_index('idx_blog_posts_category', 'blog_posts', ['category_id'])
+    op.create_index('idx_blog_posts_published_at', 'blog_posts', ['published_at'])
+    op.create_index('idx_blog_posts_slug', 'blog_posts', ['slug'])
+    op.create_index('idx_blog_posts_status', 'blog_posts', ['status'])
+    op.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_blog_posts_scheduled_at ON blog_posts (scheduled_at) "
+        "WHERE scheduled_at IS NOT NULL"
+    ))
+    op.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_blog_posts_search ON blog_posts USING gin "
+        "(to_tsvector('english', coalesce(title, '') || ' ' || coalesce(excerpt, '')))"
+    ))
+    op.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_blog_posts_tags ON blog_posts USING gin (tags)"
+    ))
 
-    # Create media_assets table
-    op.create_table('media_assets',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('cloudinary_url', sa.String(), nullable=False),
-        sa.Column('public_id', sa.String(), nullable=False),
-        sa.Column('resource_type', resource_type, server_default="'image'::resource_type", nullable=False),
-        sa.Column('format', sa.String(), nullable=True),
+    # media_assets
+    op.create_table(
+        'media_assets',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('resource_type', sa.Text(), server_default=text("'image'::resource_type"), nullable=False),
+        sa.Column('folder', sa.Text(), server_default=text("'uncategorized'::text"), nullable=False),
+        sa.Column('uploaded_by', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('source_type', sa.Text(), server_default=text("'cloudinary'::text"), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('cloudinary_url', sa.Text(), nullable=True),
+        sa.Column('public_id', sa.Text(), nullable=True),
+        sa.Column('format', sa.Text(), nullable=True),
         sa.Column('width', sa.Integer(), nullable=True),
         sa.Column('height', sa.Integer(), nullable=True),
         sa.Column('file_size', sa.Integer(), nullable=True),
-        sa.Column('file_name', sa.String(), nullable=True),
-        sa.Column('folder', sa.String(), server_default="'uncategorized'::text", nullable=False),
-        sa.Column('alt_text', sa.String(), nullable=True),
-        sa.Column('uploaded_by', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(['uploaded_by'], ['users.id'], ),
-        sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('public_id')
+        sa.Column('file_name', sa.Text(), nullable=True),
+        sa.Column('alt_text', sa.Text(), nullable=True),
+        sa.Column('external_id', sa.Text(), nullable=True),
+        sa.Column('thumbnail_url', sa.Text(), nullable=True),
+        sa.Column('video_title', sa.Text(), nullable=True),
+        sa.Column('video_duration_seconds', sa.Integer(), nullable=True),
+        sa.Column('file_hash', sa.Text(), nullable=True),
+        sa.Column('is_orphan', sa.Boolean(), server_default=text('false'), nullable=False),
+        sa.CheckConstraint(
+            "source_type = ANY (ARRAY['cloudinary'::text, 'youtube'::text])",
+            name='media_assets_source_type_check',
+        ),
+        sa.ForeignKeyConstraint(['uploaded_by'], ['users.id'], name='media_assets_uploaded_by_fkey'),
+        sa.PrimaryKeyConstraint('id', name='media_assets_pkey'),
+        sa.UniqueConstraint('public_id', name='media_assets_public_id_key'),
     )
+    op.create_index('idx_media_assets_folder', 'media_assets', ['folder'])
+    op.create_index('idx_media_assets_public_id', 'media_assets', ['public_id'])
+    op.create_index('idx_media_assets_resource_type', 'media_assets', ['resource_type'])
+    op.create_index('idx_media_assets_source_type', 'media_assets', ['source_type'])
+    op.create_index('idx_media_assets_file_hash', 'media_assets', ['file_hash'])
+    op.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_media_assets_created_at ON media_assets (created_at DESC)"
+    ))
+    op.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_media_assets_external_id ON media_assets (external_id) "
+        "WHERE external_id IS NOT NULL"
+    ))
+    op.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_media_assets_search ON media_assets USING gin "
+        "(to_tsvector('english', coalesce(file_name, '') || ' ' || coalesce(alt_text, '')))"
+    ))
+    op.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_media_assets_fname_trgm ON media_assets "
+        "USING gin (file_name gin_trgm_ops)"
+    ))
 
-    # Create reactions table
-    op.create_table('reactions',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('user_id', postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column('session_id', sa.String(), nullable=True),
-        sa.Column('content_type', content_type, nullable=False),
+    # reactions
+    op.create_table(
+        'reactions',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('content_type', sa.Text(), nullable=False),
         sa.Column('content_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('reaction_type', reaction_type, nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.Column('reaction_type', sa.Text(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('user_id', postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column('session_id', sa.Text(), nullable=True),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'], name='reactions_user_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='reactions_pkey'),
     )
+    op.create_index('idx_reactions_content', 'reactions', ['content_type', 'content_id'])
+    op.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_reactions_user ON reactions (user_id) "
+        "WHERE user_id IS NOT NULL"
+    ))
 
-    # Create polls table
-    op.create_table('polls',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('question', sa.String(), nullable=False),
-        sa.Column('options', postgresql.JSONB(astext_type=sa.Text()), server_default="'[]'::jsonb", nullable=False),
-        sa.Column('assigned_to_type', content_type, nullable=True),
+    # polls
+    op.create_table(
+        'polls',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('question', sa.Text(), nullable=False),
+        sa.Column('options', postgresql.JSONB(), server_default=text("'[]'::jsonb"), nullable=False),
+        sa.Column('anonymous', sa.Boolean(), server_default=text('false'), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('assigned_to_type', sa.Text(), nullable=True),
         sa.Column('assigned_to_id', postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('anonymous', sa.Boolean(), server_default='false', nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.PrimaryKeyConstraint('id')
+        sa.PrimaryKeyConstraint('id', name='polls_pkey'),
     )
+    op.create_index('idx_polls_assigned', 'polls', ['assigned_to_type', 'assigned_to_id'])
 
-    # Create poll_votes table
-    op.create_table('poll_votes',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+    # poll_votes
+    op.create_table(
+        'poll_votes',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
         sa.Column('poll_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('option_id', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('voted_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
         sa.Column('user_id', postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column('session_id', sa.String(), nullable=True),
-        sa.Column('voted_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(['poll_id'], ['polls.id'], ),
-        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.Column('session_id', sa.Text(), nullable=True),
+        sa.ForeignKeyConstraint(['poll_id'], ['polls.id'], name='poll_votes_poll_id_fkey'),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'], name='poll_votes_user_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='poll_votes_pkey'),
     )
+    op.create_index('idx_poll_votes_poll', 'poll_votes', ['poll_id'])
 
-    # Create feedback_forms table
-    op.create_table('feedback_forms',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('title', sa.String(), nullable=False),
-        sa.Column('fields', postgresql.JSONB(astext_type=sa.Text()), server_default="'[]'::jsonb", nullable=False),
-        sa.Column('assigned_to_type', content_type, nullable=True),
+    # feedback_forms
+    op.create_table(
+        'feedback_forms',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('title', sa.Text(), nullable=False),
+        sa.Column('fields', postgresql.JSONB(), server_default=text("'[]'::jsonb"), nullable=False),
+        sa.Column('is_active', sa.Boolean(), server_default=text('true'), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('assigned_to_type', sa.Text(), nullable=True),
         sa.Column('assigned_to_id', postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column('is_active', sa.Boolean(), server_default='true', nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.PrimaryKeyConstraint('id')
+        sa.PrimaryKeyConstraint('id', name='feedback_forms_pkey'),
     )
 
-    # Create feedback_submissions table
-    op.create_table('feedback_submissions',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+    # feedback_submissions
+    op.create_table(
+        'feedback_submissions',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
         sa.Column('form_id', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('responses', postgresql.JSONB(), server_default=text("'[]'::jsonb"), nullable=False),
+        sa.Column('submitted_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
         sa.Column('user_id', postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column('session_id', sa.String(), nullable=True),
-        sa.Column('responses', postgresql.JSONB(astext_type=sa.Text()), server_default="'[]'::jsonb", nullable=False),
-        sa.Column('submitted_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(['form_id'], ['feedback_forms.id'], ),
-        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.Column('session_id', sa.Text(), nullable=True),
+        sa.ForeignKeyConstraint(['form_id'], ['feedback_forms.id'], name='feedback_submissions_form_id_fkey'),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'], name='feedback_submissions_user_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='feedback_submissions_pkey'),
     )
+    op.create_index('idx_feedback_submissions_form', 'feedback_submissions', ['form_id'])
 
-    # Create comments table
-    op.create_table('comments',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+    # comments
+    op.create_table(
+        'comments',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
         sa.Column('blog_id', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('content', sa.Text(), nullable=False),
+        sa.Column('is_approved', sa.Boolean(), server_default=text('false'), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
         sa.Column('user_id', postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column('parent_id', postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column('author_name', sa.String(), nullable=True),
-        sa.Column('author_email', sa.String(), nullable=True),
-        sa.Column('content', sa.Text(), nullable=False),
-        sa.Column('is_approved', sa.Boolean(), server_default='false', nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(['blog_id'], ['blog_posts.id'], ),
-        sa.ForeignKeyConstraint(['parent_id'], ['comments.id'], ),
-        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.Column('author_name', sa.Text(), nullable=True),
+        sa.Column('author_email', sa.Text(), nullable=True),
+        sa.ForeignKeyConstraint(['blog_id'], ['blog_posts.id'], name='comments_blog_id_fkey'),
+        sa.ForeignKeyConstraint(['parent_id'], ['comments.id'], name='comments_parent_id_fkey'),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'], name='comments_user_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='comments_pkey'),
     )
+    op.create_index('idx_comments_blog', 'comments', ['blog_id'])
+    op.create_index('idx_comments_approved', 'comments', ['blog_id', 'is_approved'])
+    op.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments (parent_id) "
+        "WHERE parent_id IS NOT NULL"
+    ))
 
-    # Create newsletter_subscribers table
-    op.create_table('newsletter_subscribers',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('email', sa.String(), nullable=False),
-        sa.Column('name', sa.String(), nullable=True),
-        sa.Column('topics', postgresql.ARRAY(sa.String()), server_default="'{}'::text[]", nullable=False),
-        sa.Column('status', subscriber_status, server_default="'active'::subscriber_status", nullable=False),
-        sa.Column('unsubscribe_token', sa.String(), nullable=True),
-        sa.Column('subscribed_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+    # newsletter_subscribers
+    op.create_table(
+        'newsletter_subscribers',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('email', sa.Text(), nullable=False),
+        sa.Column('topics', postgresql.ARRAY(sa.Text()), server_default=text("'{}'::text[]"), nullable=False),
+        sa.Column('status', sa.Text(), server_default=text("'active'::subscriber_status"), nullable=False),
+        sa.Column('subscribed_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('name', sa.Text(), nullable=True),
+        sa.Column('unsubscribe_token', sa.Text(), server_default=text("encode(gen_random_bytes(32), 'hex'::text)"), nullable=True),
         sa.Column('unsubscribed_at', sa.DateTime(timezone=True), nullable=True),
-        sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('email'),
-        sa.UniqueConstraint('unsubscribe_token')
+        sa.PrimaryKeyConstraint('id', name='newsletter_subscribers_pkey'),
+        sa.UniqueConstraint('email', name='newsletter_subscribers_email_key'),
+        sa.UniqueConstraint('unsubscribe_token', name='newsletter_subscribers_unsubscribe_token_key'),
     )
+    op.create_index('idx_subscribers_email', 'newsletter_subscribers', ['email'])
+    op.create_index('idx_subscribers_status', 'newsletter_subscribers', ['status'])
 
-    # Create contact_messages table
-    op.create_table('contact_messages',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('name', sa.String(), nullable=False),
-        sa.Column('email', sa.String(), nullable=False),
-        sa.Column('subject', sa.String(), nullable=False),
+    # contact_messages
+    op.create_table(
+        'contact_messages',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('name', sa.Text(), nullable=False),
+        sa.Column('email', sa.Text(), nullable=False),
+        sa.Column('subject', sa.Text(), nullable=False),
         sa.Column('message', sa.Text(), nullable=False),
-        sa.Column('attachment_url', sa.String(), nullable=True),
-        sa.Column('read', sa.Boolean(), server_default='false', nullable=False),
+        sa.Column('read', sa.Boolean(), server_default=text('false'), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('attachment_url', sa.Text(), nullable=True),
         sa.Column('read_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.PrimaryKeyConstraint('id')
+        sa.PrimaryKeyConstraint('id', name='contact_messages_pkey'),
     )
+    op.create_index('idx_contact_messages_created', 'contact_messages', ['created_at'])
+    op.create_index('idx_contact_messages_read', 'contact_messages', ['read'])
 
-    # Create page_views table
-    op.create_table('page_views',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('path', sa.String(), nullable=False),
-        sa.Column('referrer', sa.String(), nullable=True),
-        sa.Column('country', sa.String(length=2), nullable=True),
-        sa.Column('user_agent_hash', sa.String(), nullable=True),
-        sa.Column('session_id', sa.String(), nullable=True),
-        sa.Column('viewed_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.PrimaryKeyConstraint('id')
+    # page_views
+    op.create_table(
+        'page_views',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('path', sa.Text(), nullable=False),
+        sa.Column('viewed_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('referrer', sa.Text(), nullable=True),
+        sa.Column('country', sa.CHAR(1), nullable=True),
+        sa.Column('user_agent_hash', sa.Text(), nullable=True),
+        sa.Column('session_id', sa.Text(), nullable=True),
+        sa.PrimaryKeyConstraint('id', name='page_views_pkey'),
     )
+    op.create_index('idx_page_views_path', 'page_views', ['path'])
+    op.create_index('idx_page_views_viewed_at', 'page_views', ['viewed_at'])
 
-    # Create activity_log table
-    op.create_table('activity_log',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('action_type', activity_type, nullable=False),
-        sa.Column('description', sa.String(), nullable=False),
-        sa.Column('entity_type', sa.String(), nullable=True),
+    # activity_log
+    op.create_table(
+        'activity_log',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('action_type', sa.Text(), nullable=False),
+        sa.Column('description', sa.Text(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('entity_type', sa.Text(), nullable=True),
         sa.Column('entity_id', postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column('entity_title', sa.String(), nullable=True),
+        sa.Column('entity_title', sa.Text(), nullable=True),
         sa.Column('performed_by', postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column('metadata', postgresql.JSONB(astext_type=sa.Text()), server_default="'{}'::jsonb", nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(['performed_by'], ['users.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.Column('metadata', postgresql.JSONB(), server_default=text("'{}'::jsonb"), nullable=True),
+        sa.ForeignKeyConstraint(['performed_by'], ['users.id'], name='activity_log_performed_by_fkey'),
+        sa.PrimaryKeyConstraint('id', name='activity_log_pkey'),
     )
+    op.create_index('idx_activity_log_action', 'activity_log', ['action_type'])
+    op.create_index('idx_activity_log_created', 'activity_log', ['created_at'])
+    op.create_index('idx_activity_log_entity', 'activity_log', ['entity_type', 'entity_id'])
 
-    # Create admin_style_profile table
-    op.create_table('admin_style_profile',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+    # admin_style_profile
+    op.create_table(
+        'admin_style_profile',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
         sa.Column('admin_user_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('style_vector', sa.String(), nullable=True),
-        sa.Column('examples', postgresql.JSONB(astext_type=sa.Text()), server_default="'[]'::jsonb", nullable=False),
-        sa.Column('sample_count', sa.Integer(), server_default='0', nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(['admin_user_id'], ['users.id'], ),
-        sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('admin_user_id')
+        sa.Column('examples', postgresql.JSONB(), server_default=text("'[]'::jsonb"), nullable=False),
+        sa.Column('sample_count', sa.Integer(), server_default=text('0'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('style_vector', _Vector(), nullable=True),
+        sa.ForeignKeyConstraint(['admin_user_id'], ['users.id'], name='admin_style_profile_admin_user_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='admin_style_profile_pkey'),
+        sa.UniqueConstraint('admin_user_id', name='admin_style_profile_admin_user_id_key'),
     )
 
-    # Create assistant_sessions table
-    op.create_table('assistant_sessions',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('visitor_id', sa.String(), nullable=False),
-        sa.Column('session_token', sa.String(), nullable=True),
-        sa.Column('message_count', sa.Integer(), server_default='0', nullable=False),
-        sa.Column('has_escalation', sa.Boolean(), server_default='false', nullable=False),
-        sa.Column('has_booking', sa.Boolean(), server_default='false', nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column('last_active_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('session_token')
+    # assistant_sessions
+    op.create_table(
+        'assistant_sessions',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('visitor_id', sa.Text(), nullable=False),
+        sa.Column('message_count', sa.Integer(), server_default=text('0'), nullable=False),
+        sa.Column('has_escalation', sa.Boolean(), server_default=text('false'), nullable=False),
+        sa.Column('has_booking', sa.Boolean(), server_default=text('false'), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('last_active_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('session_token', sa.Text(), server_default=text("encode(gen_random_bytes(32), 'hex'::text)"), nullable=True),
+        sa.PrimaryKeyConstraint('id', name='assistant_sessions_pkey'),
+        sa.UniqueConstraint('session_token', name='assistant_sessions_session_token_key'),
     )
+    op.create_index('idx_assistant_sessions_created', 'assistant_sessions', ['created_at'])
+    op.create_index('idx_assistant_sessions_visitor', 'assistant_sessions', ['visitor_id'])
 
-    # Create assistant_messages table
-    op.create_table('assistant_messages',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+    # assistant_messages
+    op.create_table(
+        'assistant_messages',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
         sa.Column('session_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('role', sa.String(), nullable=False),
+        sa.Column('role', sa.Text(), nullable=False),
         sa.Column('content', sa.Text(), nullable=False),
-        sa.Column('suggested_options', postgresql.JSONB(astext_type=sa.Text()), server_default="'[]'::jsonb", nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('suggested_options', postgresql.JSONB(), server_default=text("'[]'::jsonb"), nullable=True),
         sa.Column('question_id', postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column('action_buttons', postgresql.JSONB(astext_type=sa.Text()), server_default="'[]'::jsonb", nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.CheckConstraint("role IN ('user', 'assistant')", name='assistant_messages_role_check'),
-        sa.ForeignKeyConstraint(['session_id'], ['assistant_sessions.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.Column('action_buttons', postgresql.JSONB(), server_default=text("'[]'::jsonb"), nullable=True),
+        sa.CheckConstraint(
+            "role = ANY (ARRAY['user'::text, 'assistant'::text])",
+            name='assistant_messages_role_check',
+        ),
+        sa.ForeignKeyConstraint(['session_id'], ['assistant_sessions.id'], name='assistant_messages_session_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='assistant_messages_pkey'),
     )
+    op.create_index('idx_assistant_messages_session', 'assistant_messages', ['session_id'])
+    op.create_index('idx_assistant_messages_created', 'assistant_messages', ['session_id', 'created_at'])
 
-    # Create visitor_graph_nodes table
-    op.create_table('visitor_graph_nodes',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+    # visitor_graph_nodes
+    op.create_table(
+        'visitor_graph_nodes',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
         sa.Column('visitor_session_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('entity_type', sa.String(), nullable=False),
-        sa.Column('entity_value', sa.String(), nullable=False),
-        sa.Column('confidence', sa.Float(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(['visitor_session_id'], ['assistant_sessions.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.Column('entity_type', sa.Text(), nullable=False),
+        sa.Column('entity_value', sa.Text(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('confidence', sa.Float(), server_default=text('1.0'), nullable=True),
+        sa.ForeignKeyConstraint(['visitor_session_id'], ['assistant_sessions.id'], name='visitor_graph_nodes_visitor_session_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='visitor_graph_nodes_pkey'),
     )
+    op.create_index('idx_vgn_session', 'visitor_graph_nodes', ['visitor_session_id'])
 
-    # Create visitor_graph_edges table
-    op.create_table('visitor_graph_edges',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+    # visitor_graph_edges
+    op.create_table(
+        'visitor_graph_edges',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
         sa.Column('source_node_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('relationship_type', sa.String(), nullable=False),
+        sa.Column('relationship_type', sa.Text(), nullable=False),
         sa.Column('target_node_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(['source_node_id'], ['visitor_graph_nodes.id'], ),
-        sa.ForeignKeyConstraint(['target_node_id'], ['visitor_graph_nodes.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.ForeignKeyConstraint(['source_node_id'], ['visitor_graph_nodes.id'], name='visitor_graph_edges_source_node_id_fkey'),
+        sa.ForeignKeyConstraint(['target_node_id'], ['visitor_graph_nodes.id'], name='visitor_graph_edges_target_node_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='visitor_graph_edges_pkey'),
     )
+    op.create_index('idx_vge_source', 'visitor_graph_edges', ['source_node_id'])
+    op.create_index('idx_vge_target', 'visitor_graph_edges', ['target_node_id'])
 
-    # Create jerry_voice_profile table
-    op.create_table('jerry_voice_profile',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+    # jerry_voice_profile
+    op.create_table(
+        'jerry_voice_profile',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
         sa.Column('profile_text', sa.Text(), nullable=False),
-        sa.Column('style_preferences', postgresql.JSONB(astext_type=sa.Text()), server_default="'{}'::jsonb", nullable=False),
-        sa.Column('version', sa.Integer(), server_default='1', nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.PrimaryKeyConstraint('id')
+        sa.Column('style_preferences', postgresql.JSONB(), server_default=text("'{}'::jsonb"), nullable=False),
+        sa.Column('version', sa.Integer(), server_default=text('1'), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.PrimaryKeyConstraint('id', name='jerry_voice_profile_pkey'),
     )
 
-    # Create jerry_style_corpus table
-    op.create_table('jerry_style_corpus',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('source_type', sa.String(), nullable=False),
+    # jerry_style_corpus
+    op.create_table(
+        'jerry_style_corpus',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('source_type', sa.Text(), nullable=False),
         sa.Column('content_text', sa.Text(), nullable=False),
-        sa.Column('embedding_vector', sa.String(), nullable=True),
-        sa.Column('context_tag', sa.String(), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('embedding_vector', _Vector(), nullable=True),
+        sa.Column('context_tag', sa.Text(), nullable=True),
         sa.Column('pii_scrubbed_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.PrimaryKeyConstraint('id')
+        sa.PrimaryKeyConstraint('id', name='jerry_style_corpus_pkey'),
     )
+    op.create_index('idx_jsc_context', 'jerry_style_corpus', ['context_tag'])
+    op.create_index('idx_jsc_source', 'jerry_style_corpus', ['source_type'])
 
-    # Create jerry_pricing_kb table
-    op.create_table('jerry_pricing_kb',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('service_type', sa.String(), nullable=False),
+    # jerry_pricing_kb
+    op.create_table(
+        'jerry_pricing_kb',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
+        sa.Column('service_type', sa.Text(), nullable=False),
         sa.Column('price_range_low', sa.Numeric(), nullable=False),
         sa.Column('price_range_high', sa.Numeric(), nullable=False),
-        sa.Column('currency', sa.String(length=3), server_default="'USD'", nullable=False),
+        sa.Column('currency', sa.CHAR(3), server_default=text("'USD'::bpchar"), nullable=False),
         sa.Column('timeline_weeks_min', sa.Integer(), nullable=False),
         sa.Column('timeline_weeks_max', sa.Integer(), nullable=False),
-        sa.Column('notes', sa.String(), nullable=True),
-        sa.Column('is_active', sa.Boolean(), server_default='true', nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.PrimaryKeyConstraint('id')
+        sa.Column('is_active', sa.Boolean(), server_default=text('true'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('notes', sa.Text(), nullable=True),
+        sa.PrimaryKeyConstraint('id', name='jerry_pricing_kb_pkey'),
     )
 
-    # Create jerry_notes table
-    op.create_table('jerry_notes',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+    # jerry_notes
+    op.create_table(
+        'jerry_notes',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
         sa.Column('visitor_session_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('visitor_id', sa.String(), nullable=False),
-        sa.Column('source_message_id', postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column('visitor_id', sa.Text(), nullable=False),
         sa.Column('note_text', sa.Text(), nullable=False),
-        sa.Column('note_type', note_type, server_default="'general'::note_type", nullable=False),
-        sa.Column('is_starred', sa.Boolean(), server_default='false', nullable=False),
-        sa.Column('is_feedback', sa.Boolean(), server_default='false', nullable=False),
-        sa.Column('conversation_snapshot', postgresql.JSONB(astext_type=sa.Text()), server_default="'[]'::jsonb", nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column('note_type', sa.Text(), server_default=text("'general'::note_type"), nullable=False),
+        sa.Column('is_starred', sa.Boolean(), server_default=text('false'), nullable=False),
+        sa.Column('is_feedback', sa.Boolean(), server_default=text('false'), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('source_message_id', postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column('conversation_snapshot', postgresql.JSONB(), server_default=text("'[]'::jsonb"), nullable=True),
         sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(['source_message_id'], ['assistant_messages.id'], ),
-        sa.ForeignKeyConstraint(['visitor_session_id'], ['assistant_sessions.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.ForeignKeyConstraint(['source_message_id'], ['assistant_messages.id'], name='jerry_notes_source_message_id_fkey'),
+        sa.ForeignKeyConstraint(['visitor_session_id'], ['assistant_sessions.id'], name='jerry_notes_visitor_session_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='jerry_notes_pkey'),
     )
+    op.create_index('idx_jerry_notes_created', 'jerry_notes', ['created_at'])
+    op.create_index('idx_jerry_notes_session', 'jerry_notes', ['visitor_session_id'])
+    op.create_index('idx_jerry_notes_starred', 'jerry_notes', ['is_starred'])
+    op.create_index('idx_jerry_notes_type', 'jerry_notes', ['note_type'])
 
-    # Create jerry_admin_sessions table
-    op.create_table('jerry_admin_sessions',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+    # jerry_admin_sessions
+    op.create_table(
+        'jerry_admin_sessions',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
         sa.Column('admin_user_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('started_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column('started_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
         sa.Column('ended_at', sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(['admin_user_id'], ['users.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.ForeignKeyConstraint(['admin_user_id'], ['users.id'], name='jerry_admin_sessions_admin_user_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='jerry_admin_sessions_pkey'),
     )
 
-    # Create jerry_escalations table
-    op.create_table('jerry_escalations',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+    # jerry_escalations
+    op.create_table(
+        'jerry_escalations',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
         sa.Column('visitor_session_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('trigger_type', escalation_trigger, nullable=False),
+        sa.Column('trigger_type', sa.Text(), nullable=False),
         sa.Column('message_excerpt', sa.Text(), nullable=False),
-        sa.Column('notified_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column('notified_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
         sa.Column('resolved_at', sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(['visitor_session_id'], ['assistant_sessions.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.ForeignKeyConstraint(['visitor_session_id'], ['assistant_sessions.id'], name='jerry_escalations_visitor_session_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='jerry_escalations_pkey'),
     )
+    op.create_index('idx_jerry_escalations_session', 'jerry_escalations', ['visitor_session_id'])
+    op.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_jerry_escalations_unresolved ON jerry_escalations (resolved_at) "
+        "WHERE resolved_at IS NULL"
+    ))
 
-    # Create jerry_bookings table
-    op.create_table('jerry_bookings',
-        sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
+    # jerry_bookings
+    op.create_table(
+        'jerry_bookings',
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=text('gen_random_uuid()'), nullable=False),
         sa.Column('visitor_session_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('visitor_email', sa.String(), nullable=False),
-        sa.Column('visitor_name', sa.String(), nullable=False),
-        sa.Column('topic', sa.String(), nullable=True),
+        sa.Column('visitor_email', sa.Text(), nullable=False),
+        sa.Column('visitor_name', sa.Text(), nullable=False),
         sa.Column('slot_start', sa.DateTime(timezone=True), nullable=False),
         sa.Column('slot_end', sa.DateTime(timezone=True), nullable=False),
-        sa.Column('google_event_id', sa.String(), nullable=True),
-        sa.Column('calendar_link', sa.String(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(['visitor_session_id'], ['assistant_sessions.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=text('now()'), nullable=False),
+        sa.Column('topic', sa.Text(), nullable=True),
+        sa.Column('google_event_id', sa.Text(), nullable=True),
+        sa.Column('calendar_link', sa.Text(), nullable=True),
+        sa.ForeignKeyConstraint(['visitor_session_id'], ['assistant_sessions.id'], name='jerry_bookings_visitor_session_id_fkey'),
+        sa.PrimaryKeyConstraint('id', name='jerry_bookings_pkey'),
     )
+    op.create_index('idx_jerry_bookings_slot', 'jerry_bookings', ['slot_start'])
 
+
+# ---------------------------------------------------------------------------
+# downgrade
+# ---------------------------------------------------------------------------
 
 def downgrade() -> None:
-    # Drop tables
+    conn = op.get_bind()
+
     op.drop_table('jerry_bookings')
     op.drop_table('jerry_escalations')
     op.drop_table('jerry_admin_sessions')
@@ -500,15 +695,14 @@ def downgrade() -> None:
     op.drop_table('blog_categories')
     op.drop_table('users')
 
-    # Drop enums
-    sa.Enum('admin', 'viewer', name='user_role').drop(op.get_bind(), checkfirst=True)
-    sa.Enum('draft', 'published', 'archived', name='project_status').drop(op.get_bind(), checkfirst=True)
-    sa.Enum('public', 'members_only', 'unlisted', name='content_visibility').drop(op.get_bind(), checkfirst=True)
-    sa.Enum('draft', 'review', 'published', 'archived', name='blog_status').drop(op.get_bind(), checkfirst=True)
-    sa.Enum('image', 'video', 'raw', name='resource_type').drop(op.get_bind(), checkfirst=True)
-    sa.Enum('like', 'love', 'fire', 'clap', 'mind_blown', name='reaction_type').drop(op.get_bind(), checkfirst=True)
-    sa.Enum('blog_post', 'project', name='content_type').drop(op.get_bind(), checkfirst=True)
-    sa.Enum('active', 'unsubscribed', 'bounced', name='subscriber_status').drop(op.get_bind(), checkfirst=True)
-    sa.Enum('project_created', 'project_updated', 'project_published', 'project_deleted', 'blog_created', 'blog_updated', 'blog_published', 'blog_archived', 'blog_deleted', 'media_uploaded', 'media_deleted', 'comment_approved', 'comment_deleted', 'subscriber_added', 'contact_received', 'jerry_escalation', 'jerry_booking', 'ai_suggestion_accepted', name='activity_type').drop(op.get_bind(), checkfirst=True)
-    sa.Enum('interest', 'feedback', 'pain_point', 'intent', 'budget', 'timeline', 'general', name='note_type').drop(op.get_bind(), checkfirst=True)
-    sa.Enum('explicit_request', 'negative_sentiment', 'repeated_question', 'budget_mention', 'urgent_keyword', name='escalation_trigger').drop(op.get_bind(), checkfirst=True)
+    conn.execute(text("DROP TYPE IF EXISTS escalation_trigger"))
+    conn.execute(text("DROP TYPE IF EXISTS note_type"))
+    conn.execute(text("DROP TYPE IF EXISTS activity_type"))
+    conn.execute(text("DROP TYPE IF EXISTS subscriber_status"))
+    conn.execute(text("DROP TYPE IF EXISTS content_type"))
+    conn.execute(text("DROP TYPE IF EXISTS reaction_type"))
+    conn.execute(text("DROP TYPE IF EXISTS resource_type"))
+    conn.execute(text("DROP TYPE IF EXISTS blog_status"))
+    conn.execute(text("DROP TYPE IF EXISTS content_visibility"))
+    conn.execute(text("DROP TYPE IF EXISTS project_status"))
+    conn.execute(text("DROP TYPE IF EXISTS user_role"))
