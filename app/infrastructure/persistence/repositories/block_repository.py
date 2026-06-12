@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import delete as sa_delete, select, update as sa_update
+import datetime
+
+from sqlalchemy import delete as sa_delete, func, select, update as sa_update
 from sqlalchemy.orm import Session
 
 from app.domain.entities.block import Block
@@ -45,7 +47,10 @@ class SqlAlchemyBlockRepository(BlockRepository):
                 ProjectBlocks.project_id == project_id,
                 ProjectBlocks.position >= position,
             )
-            .values(position=ProjectBlocks.position + 1)
+            .values(
+                position=ProjectBlocks.position + 1,
+                updated_at=func.now(),
+            )
         )
         self._db.flush()
 
