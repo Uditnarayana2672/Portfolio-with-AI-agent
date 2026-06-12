@@ -88,6 +88,16 @@ class SqlAlchemyProjectRepository(ProjectRepository):
             or 0
         ) > 0
 
+    def count_featured_excluding(self, exclude_id: uuid.UUID) -> int:
+        return (
+            self._db.scalar(
+                select(func.count())
+                .select_from(Projects)
+                .where(Projects.is_featured.is_(True), Projects.id != exclude_id)
+            )
+            or 0
+        )
+
     def update(self, project_id: uuid.UUID, changes: dict) -> tuple[Project, list[Block]]:
         row = (
             self._db.execute(

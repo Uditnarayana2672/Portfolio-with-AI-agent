@@ -28,6 +28,18 @@ class SlugTakenError(ConflictError):
         self.suggested = suggested
 
 
+class FeaturedLimitError(ConflictError):
+    """Featuring this project would exceed the maximum number of featured
+    projects allowed on the homepage (→ HTTP 409).
+
+    Carries the configured cap so the API can return a precise message.
+    """
+
+    def __init__(self, max_featured: int) -> None:
+        super().__init__(f"Featured project limit reached (max {max_featured})")
+        self.max_featured = max_featured
+
+
 class ValidationError(DomainError):
     """Input violates a business rule (→ HTTP 422)."""
 

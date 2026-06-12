@@ -37,6 +37,7 @@ from app.application.use_cases.projects.create_project import CreateProject
 from app.application.use_cases.projects.delete_block import DeleteBlock
 from app.application.use_cases.projects.delete_project import DeleteProject
 from app.application.use_cases.projects.get_project import GetProject
+from app.application.use_cases.projects.toggle_feature import ToggleFeature
 from app.application.use_cases.projects.update_project import UpdateProject
 from app.domain.repositories.activity_log_repository import ActivityLogRepository
 from app.domain.repositories.block_repository import BlockRepository
@@ -200,6 +201,13 @@ def get_delete_project(
     activity: ActivityLogRepository = Depends(get_activity_repository),
 ) -> DeleteProject:
     return DeleteProject(repo=repo, activity=activity)
+
+
+def get_toggle_feature(
+    repo: ProjectRepository = Depends(get_project_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+) -> ToggleFeature:
+    return ToggleFeature(repo=repo, activity=activity)
 
 
 # ── blocks ────────────────────────────────────────────────────────────────────

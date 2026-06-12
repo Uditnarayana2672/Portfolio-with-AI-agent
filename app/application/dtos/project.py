@@ -47,6 +47,10 @@ MAX_POLL_OPTIONS = 6
 MIN_POLL_OPTIONS = 2
 MAX_CODE_LENGTH = 50_000
 
+# Cap on how many projects can be featured on the public homepage at once.
+# Toggling a project to featured beyond this returns 409.
+MAX_FEATURED_PROJECTS = 3
+
 
 @dataclass(frozen=True)
 class SeoInput:
@@ -118,6 +122,19 @@ class UpdateProjectCommand:
     project_id: uuid.UUID
     requester_id: uuid.UUID
     fields: dict
+
+
+@dataclass
+class ToggleFeatureCommand:
+    project_id: uuid.UUID
+    requester_id: uuid.UUID
+    is_featured: bool
+
+
+@dataclass(frozen=True)
+class ToggleFeatureResult:
+    id: uuid.UUID
+    is_featured: bool
 
 
 @dataclass(frozen=True)

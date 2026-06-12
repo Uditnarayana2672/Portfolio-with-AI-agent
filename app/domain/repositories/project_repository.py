@@ -52,6 +52,12 @@ class ProjectRepository(ABC):
         so the project's own current slug does not trigger a false collision."""
 
     @abstractmethod
+    def count_featured_excluding(self, exclude_id: uuid.UUID) -> int:
+        """Count featured projects other than ``exclude_id``. Used by the
+        toggle-featured flow to enforce the homepage featured cap without
+        counting the project being toggled itself."""
+
+    @abstractmethod
     def update(self, project_id: uuid.UUID, changes: dict) -> tuple[Project, list[Block]]:
         """Apply a partial update to an existing project.
 

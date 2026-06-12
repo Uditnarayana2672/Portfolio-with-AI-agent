@@ -112,6 +112,16 @@ class AddBlockRequest(BaseModel):
         return v
 
 
+class ToggleFeatureRequest(BaseModel):
+    # strict=True so the JSON string "true" / number 1 are rejected as 422
+    # rather than silently coerced to the boolean — only real JSON booleans pass.
+    is_featured: bool = Field(
+        ...,
+        strict=True,
+        description="Whether the project should be marked as featured on the homepage.",
+    )
+
+
 class UpdateProjectRequest(BaseModel):
     title: str | None = None
     slug: str | None = None
@@ -149,6 +159,11 @@ class BlockResponse(BaseModel):
     @field_serializer("created_at", "updated_at")
     def _serialize_dt(self, value: datetime.datetime) -> str:
         return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class ToggleFeatureResponse(BaseModel):
+    id: uuid.UUID
+    is_featured: bool
 
 
 class CreateProjectResponse(BaseModel):

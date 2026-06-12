@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Any
+
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api.v1.dependencies.auth import get_current_admin
-from app.api.v1.dependencies.providers import get_add_block, get_create_project, get_delete_block, get_delete_project, get_get_project, get_update_project
+from app.api.v1.dependencies.providers import get_add_block, get_create_project, get_delete_block, get_delete_project, get_get_project, get_toggle_feature, get_update_project
 from app.api.v1.schemas.block_config import BLOCK_CONFIG_MODELS
 from app.api.v1.schemas.project import (
     AddBlockRequest,
@@ -20,17 +22,20 @@ from app.api.v1.schemas.project import (
     CreateProjectResponse,
     GetProjectResponse,
     SeoResponse,
+    ToggleFeatureRequest,
+    ToggleFeatureResponse,
     UpdateProjectRequest,
     UpdateProjectResponse,
 )
-from app.application.dtos.project import AddBlockCommand, CreateProjectCommand, SeoInput, UpdateProjectCommand
+from app.application.dtos.project import MAX_FEATURED_PROJECTS, AddBlockCommand, CreateProjectCommand, SeoInput, ToggleFeatureCommand, UpdateProjectCommand
 from app.application.use_cases.projects.add_block import AddBlock
 from app.application.use_cases.projects.create_project import CreateProject
 from app.application.use_cases.projects.delete_block import DeleteBlock
 from app.application.use_cases.projects.delete_project import DeleteProject
 from app.application.use_cases.projects.get_project import GetProject
+from app.application.use_cases.projects.toggle_feature import ToggleFeature
 from app.application.use_cases.projects.update_project import UpdateProject
-from app.domain.exceptions import CodeTooLongError, NotFoundError, PermissionError, SlugTakenError, ValidationError
+from app.domain.exceptions import CodeTooLongError, ConflictError, NotFoundError, PermissionError, SlugTakenError, ValidationError
 from app.infrastructure.persistence.orm.models import Users
 
 router = APIRouter(prefix="/admin/projects", tags=["Projects"])
@@ -193,6 +198,70 @@ def add_block(
         created_at=result.created_at,
         updated_at=result.updated_at,
     )
+
+
+@router.patch(
+    "/{project_id}/feature",
+    status_code=status.HTTP_200_OK,
+    response_model=ToggleFeatureResponse,
+    summary="Toggle a project's featured flag",
+    description=(
+        "Mark a project as featured (or not) on the public homepage. "
+        "A dedicated endpoint so the toggle can fire from a list view without "
+        "the full project payload. `is_featured` must be a real JSON boolean — "
+        "the string `\"true\"` is rejected. Setting the flag to a value it "
+        "already holds is a 200 no-op. At most "
+        f"{MAX_FEATURED_PROJECTS} projects may be featured at once; "
+        "exceeding that returns 409."
+    ),
+)
+def toggle_feature(
+    project_id: uuid.UUID,
+    payload: dict[str, Any] = Body(...),
+    current_admin: Users = Depends(get_current_admin),
+    use_case: ToggleFeature = Depends(get_toggle_feature),
+) -> ToggleFeatureResponse:
+    # Parse manually (rather than binding ToggleFeatureRequest directly) so the
+    # error shape matches the API contract: {"error": ..., "message": ...}.
+    try:
+        body = ToggleFeatureRequest.model_validate(payload)
+    except PydanticValidationError as exc:
+        first = exc.errors()[0]
+        message = (
+            "is_featured is required"
+            if first.get("type") == "missing"
+            else "is_featured must be a boolean"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": message},
+        ) from exc
+
+    cmd = ToggleFeatureCommand(
+        project_id=project_id,
+        requester_id=current_admin.id,
+        is_featured=body.is_featured,
+    )
+
+    try:
+        result = use_case.execute(cmd)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "PROJECT_NOT_FOUND", "message": "Project not found"},
+        ) from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "FORBIDDEN", "message": str(exc)},
+        ) from exc
+    except ConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "FEATURED_LIMIT_REACHED", "message": str(exc)},
+        ) from exc
+
+    return ToggleFeatureResponse(id=result.id, is_featured=result.is_featured)
 
 
 @router.delete(

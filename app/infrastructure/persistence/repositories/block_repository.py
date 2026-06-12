@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import uuid
 
-import datetime
-
 from sqlalchemy import delete as sa_delete, func, select, update as sa_update
 from sqlalchemy.orm import Session
 
