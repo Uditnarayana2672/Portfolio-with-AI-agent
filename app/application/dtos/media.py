@@ -98,7 +98,7 @@ class ListMediaResult:
     total: int
     page: int
     limit: int
-    total_pages: int = 0
+    total_pages: int = field(default=0)
     folder_stats: dict[str, int] = field(default_factory=dict)
     type_stats: dict[str, int] = field(default_factory=dict)
 
