@@ -4,6 +4,7 @@ Framework-free errors raised by domain/application code. The API layer catches
 these and maps them to HTTP status codes, so use cases never import FastAPI or
 deal with HTTP themselves.
 """
+# ruff: noqa: N818  – error class names intentionally end in "Error" not "Exception"
 from __future__ import annotations
 
 
@@ -98,6 +99,19 @@ class StorageUploadError(DomainError):
         self.request_id = request_id
 
 
+class BlockReorderError(DomainError):
+    """A block reorder request violates an ordering constraint (→ HTTP 400).
+
+    Carries a machine-readable ``error_code`` (e.g. EMPTY_BLOCK_IDS) so the
+    API layer can return the exact error shape the spec requires without
+    hard-coding string comparisons.
+    """
+
+    def __init__(self, error_code: str, message: str) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+
+
 class InvalidUrlError(DomainError):
     """The supplied URL is malformed or uses a disallowed scheme (→ HTTP 400)."""
 
@@ -110,3 +124,38 @@ class BlockedUrlError(DomainError):
 class UrlFetchError(DomainError):
     """Fetching the remote URL failed — timeout, connection error, or a 4xx/5xx
     from the source (→ HTTP 422)."""
+
+
+class EmptyFileError(DomainError):
+    """The uploaded file contains zero bytes (→ HTTP 400 EMPTY_FILE)."""
+
+
+class InvalidFolderError(DomainError):
+    """The specified folder is not in the allowed list (→ HTTP 400 INVALID_FOLDER).
+
+    Carries the rejected value and the allowed set for the error body.
+    """
+
+    def __init__(self, folder: str, allowed: tuple[str, ...]) -> None:
+        allowed_list = list(allowed)
+        super().__init__(
+            f"Folder {folder!r} is not allowed. Allowed: {allowed_list}"
+        )
+        self.folder = folder
+        self.allowed = allowed_list
+
+
+class ResourceTypeMismatchError(DomainError):
+    """The declared resource_type contradicts the file extension (→ HTTP 400).
+
+    E.g. passing resource_type='image' for a .mp4 file.
+    """
+
+    def __init__(self, declared: str, inferred: str, ext: str) -> None:
+        super().__init__(
+            f"resource_type {declared!r} conflicts with .{ext} extension "
+            f"(expected {inferred!r})"
+        )
+        self.declared = declared
+        self.inferred = inferred
+        self.ext = ext

@@ -60,3 +60,12 @@ class BlockRepository(ABC):
     def delete(self, block_id: uuid.UUID) -> None:
         """Permanently delete a block by id. Caller must verify existence first.
         Flushes; the request's session owns the commit."""
+
+    @abstractmethod
+    def reorder(self, project_id: uuid.UUID, ordered_block_ids: list[uuid.UUID]) -> None:
+        """Assign position 0, 1, 2 … to blocks in the order supplied.
+
+        Caller must have verified that ``ordered_block_ids`` is the complete,
+        duplicate-free set of block IDs that belong to ``project_id``. Runs in
+        the request's open transaction (flush only — no commit). Each block's
+        ``updated_at`` is bumped."""

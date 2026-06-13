@@ -1,4 +1,7 @@
-"""HTTP request/response schemas for media endpoints (presentation layer)."""
+"""HTTP request/response schemas for media endpoints (presentation layer).
+
+Public API: all classes defined here are importable directly from this module.
+"""
 from __future__ import annotations
 
 import datetime
@@ -105,6 +108,7 @@ class MediaListResponse(BaseModel):
     total: int
     page: int
     limit: int
+    total_pages: int
     folder_stats: dict[str, int]
     type_stats: dict[str, int]
 
@@ -138,6 +142,8 @@ class MediaStatsResponse(BaseModel):
 
 
 class UploadedAssetResponse(BaseModel):
+    """Asset shape returned by the upload / import endpoints."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -151,20 +157,36 @@ class UploadedAssetResponse(BaseModel):
     file_name: str | None
     folder: str
     alt_text: str | None
-    file_hash: str | None
+    source_type: str
+    external_id: str | None
+    thumbnail_url: str | None
+    video_title: str | None
+    video_duration_seconds: int | None
     uploaded_by: uuid.UUID | None
     created_at: datetime.datetime
+    updated_at: datetime.datetime
 
-    @field_serializer("created_at")
+    @field_serializer("created_at", "updated_at")
     def _serialize_dt(self, value: datetime.datetime) -> str:
         return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+class UploadMediaApiResponse(UploadedAssetResponse):
+    """Flat 201 response for POST /admin/media/upload (API 15 spec).
+
+    All asset fields are at the top level (no nesting) plus a ``warnings``
+    list that is non-empty only when the upload succeeded with caveats
+    (e.g. OG image with wrong dimensions).
+    """
+
+    warnings: list[str] = []
+
+
 class UploadMediaResponse(BaseModel):
+    """Envelope used by the import-url endpoint (legacy shape)."""
+
     duplicate: bool
     asset: UploadedAssetResponse
-    # Omitted (via response_model_exclude_none) on the duplicate response, and
-    # rename_note is omitted unless a collision actually triggered a rename.
     renamed: bool | None = None
     rename_note: str | None = None
 

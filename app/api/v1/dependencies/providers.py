@@ -33,12 +33,15 @@ from app.application.use_cases.media.list_media import ListMedia
 from app.application.use_cases.media.update_media import UpdateMedia
 from app.application.use_cases.media.upload_media import UploadMedia
 from app.application.use_cases.projects.add_block import AddBlock
+from app.application.use_cases.projects.check_slug_availability import CheckSlugAvailability
 from app.application.use_cases.projects.create_project import CreateProject
+from app.application.use_cases.projects.duplicate_project import DuplicateProject
 from app.application.use_cases.projects.delete_block import DeleteBlock
 from app.application.use_cases.projects.delete_project import DeleteProject
 from app.application.interfaces.block_config_validator import BlockConfigValidator
 from app.application.use_cases.projects.get_project import GetProject
 from app.application.use_cases.projects.toggle_feature import ToggleFeature
+from app.application.use_cases.projects.reorder_blocks import ReorderBlocks
 from app.application.use_cases.projects.update_block import UpdateBlock
 from app.application.use_cases.projects.update_project import UpdateProject
 from app.api.v1.schemas.block_config import PydanticBlockConfigValidator
@@ -179,6 +182,12 @@ def get_project_repository(db: Session = Depends(get_db)) -> ProjectRepository:
     return SqlAlchemyProjectRepository(db)
 
 
+def get_check_slug_availability(
+    repo: ProjectRepository = Depends(get_project_repository),
+) -> CheckSlugAvailability:
+    return CheckSlugAvailability(repo=repo)
+
+
 def get_create_project(
     repo: ProjectRepository = Depends(get_project_repository),
     activity: ActivityLogRepository = Depends(get_activity_repository),
@@ -220,6 +229,14 @@ def get_block_repository(db: Session = Depends(get_db)) -> BlockRepository:
     return SqlAlchemyBlockRepository(db)
 
 
+def get_duplicate_project(
+    project_repo: ProjectRepository = Depends(get_project_repository),
+    block_repo: BlockRepository = Depends(get_block_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+) -> DuplicateProject:
+    return DuplicateProject(project_repo=project_repo, block_repo=block_repo, activity=activity)
+
+
 def get_add_block(
     project_repo: ProjectRepository = Depends(get_project_repository),
     block_repo: BlockRepository = Depends(get_block_repository),
@@ -251,3 +268,11 @@ def get_update_block(
         config_validator=config_validator,
         activity=activity,
     )
+
+
+def get_reorder_blocks(
+    project_repo: ProjectRepository = Depends(get_project_repository),
+    block_repo: BlockRepository = Depends(get_block_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+) -> ReorderBlocks:
+    return ReorderBlocks(project_repo=project_repo, block_repo=block_repo, activity=activity)

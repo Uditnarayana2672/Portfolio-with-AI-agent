@@ -173,6 +173,18 @@ class UpdateProjectResult:
     warnings: list[str]
 
 
+@dataclass
+class ReorderBlocksCommand:
+    project_id: uuid.UUID
+    requester_id: uuid.UUID
+    block_ids: list[uuid.UUID]
+
+
+@dataclass(frozen=True)
+class ReorderBlocksResult:
+    block_count: int
+
+
 @dataclass(frozen=True)
 class GetProjectResult:
     id: uuid.UUID
@@ -194,3 +206,30 @@ class GetProjectResult:
     published_at: datetime.datetime | None
     created_at: datetime.datetime
     updated_at: datetime.datetime
+
+
+@dataclass(frozen=True)
+class CheckSlugCommand:
+    slug: str
+    exclude_id: uuid.UUID | None = None
+
+
+@dataclass(frozen=True)
+class CheckSlugResult:
+    slug: str
+    available: bool
+    suggested: str | None
+
+
+@dataclass
+class DuplicateProjectCommand:
+    source_id: uuid.UUID
+    author_id: uuid.UUID
+    new_title: str | None = None
+    new_slug: str | None = None
+
+
+@dataclass(frozen=True)
+class DuplicateProjectResult:
+    original_id: uuid.UUID
+    new_project: GetProjectResult

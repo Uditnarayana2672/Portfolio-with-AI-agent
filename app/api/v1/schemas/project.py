@@ -147,6 +147,17 @@ class UpdateBlockRequest(BaseModel):
         return v
 
 
+class ReorderBlocksRequest(BaseModel):
+    block_ids: list[uuid.UUID] = Field(
+        ...,
+        description=(
+            "Ordered array of every block UUID for this project. "
+            "The server assigns position 0, 1, 2 … in the order they appear here. "
+            "Must contain all block UUIDs — subsets are rejected."
+        ),
+    )
+
+
 class UpdateProjectRequest(BaseModel):
     title: str | None = None
     slug: str | None = None
@@ -162,7 +173,27 @@ class UpdateProjectRequest(BaseModel):
     seo: SeoRequest | None = None
 
 
+class DuplicateProjectRequest(BaseModel):
+    new_title: str | None = Field(
+        None,
+        description="Title for the duplicate. Defaults to '{original} (copy)' if omitted.",
+    )
+    new_slug: str | None = Field(
+        None,
+        description=(
+            "Slug for the duplicate. Auto-generated from the new title if omitted. "
+            "Returns 409 SLUG_TAKEN (with suggestion) if the provided slug is already in use."
+        ),
+    )
+
+
 # ── response shapes ────────────────────────────────────────────────────────────
+
+
+class SlugCheckResponse(BaseModel):
+    slug: str
+    available: bool
+    suggested: str | None
 
 
 class SeoResponse(BaseModel):
@@ -184,6 +215,11 @@ class BlockResponse(BaseModel):
     @field_serializer("created_at", "updated_at")
     def _serialize_dt(self, value: datetime.datetime) -> str:
         return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class ReorderBlocksResponse(BaseModel):
+    success: bool
+    block_count: int
 
 
 class ToggleFeatureResponse(BaseModel):
@@ -286,3 +322,8 @@ class GetProjectResponse(BaseModel):
         if value is None:
             return None
         return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class DuplicateProjectResponse(BaseModel):
+    original_id: uuid.UUID
+    new_project: GetProjectResponse

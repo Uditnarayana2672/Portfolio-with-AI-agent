@@ -37,6 +37,19 @@ VIDEO_MAX_BYTES = 200 * 1024 * 1024  # 200 MB (209,715,200)
 # Backoff (seconds) between Cloudinary upload attempts; len → max attempts.
 UPLOAD_RETRY_BACKOFF = (0.5, 2.0, 8.0)
 
+# Allowed upload destination folders (single source of truth for validation).
+ALLOWED_FOLDERS = (
+    "projects/thumbnails",
+    "projects/diagrams",
+    "projects/gallery",
+    "projects/videos",
+    "system/og-images",
+)
+# OG image folder + expected dimensions for the social-card warning.
+OG_IMAGE_FOLDER = "system/og-images"
+OG_IMAGE_EXPECTED_WIDTH = 1200
+OG_IMAGE_EXPECTED_HEIGHT = 630
+
 
 @dataclass
 class ListMediaQuery:
@@ -85,6 +98,7 @@ class ListMediaResult:
     total: int
     page: int
     limit: int
+    total_pages: int = 0
     folder_stats: dict[str, int] = field(default_factory=dict)
     type_stats: dict[str, int] = field(default_factory=dict)
 
@@ -279,6 +293,7 @@ class UploadedAssetView:
     file_hash: str | None
     uploaded_by: uuid.UUID | None
     created_at: datetime.datetime
+    updated_at: datetime.datetime
     source_type: str = "cloudinary"
     external_id: str | None = None
     thumbnail_url: str | None = None
@@ -293,6 +308,7 @@ class UploadMediaResult:
     # None for the duplicate response (the key is omitted entirely there).
     renamed: bool | None = None
     rename_note: str | None = None
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass

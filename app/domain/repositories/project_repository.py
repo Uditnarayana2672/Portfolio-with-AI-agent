@@ -28,6 +28,7 @@ class NewProject:
     seo: dict
     author_id: uuid.UUID
     excerpt: str | None = None
+    thumbnail_url: str | None = None
     github_url: str | None = None
     demo_url: str | None = None
 

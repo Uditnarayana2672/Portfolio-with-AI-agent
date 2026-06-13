@@ -50,6 +50,7 @@ from app.api.v1.schemas.media import (
     UpdateMediaRequest,
     UpdateMediaResponse,
     UploadedAssetResponse,
+    UploadMediaApiResponse,
     UploadMediaResponse,
     UsageReferenceResponse,
 )
@@ -57,12 +58,13 @@ from app.application.dtos.media import (
     BulkDeleteMediaCommand,
     BulkUpdateMediaCommand,
     DEFAULT_LIMIT,
+    IMAGE_MAX_BYTES,
     ImportUrlCommand,
     ListMediaQuery,
     UpdateMediaCommand,
     UploadMediaCommand,
+    UploadMediaResult,
 )
-from app.application.dtos.media import UploadMediaResult
 from app.application.use_cases.media.bulk_delete_media import BulkDeleteMedia
 from app.application.use_cases.media.bulk_update_media import BulkUpdateMedia
 from app.application.use_cases.media.get_media_asset import GetMediaAsset
@@ -76,10 +78,13 @@ from app.application.use_cases.media.upload_media import UploadMedia
 from app.application.interfaces.image_storage import StorageError
 from app.domain.exceptions import (
     BlockedUrlError,
+    EmptyFileError,
     FileTooLargeError,
+    InvalidFolderError,
     InvalidUrlError,
     MediaInUseError,
     NotFoundError,
+    ResourceTypeMismatchError,
     StorageUploadError,
     UnsupportedFileTypeError,
     UrlFetchError,
@@ -117,8 +122,8 @@ def list_media(
         result = use_case.execute(query)
     except ValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "INVALID_QUERY_PARAM", "message": str(exc)},
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "VALIDATION_ERROR", "message": str(exc)},
         ) from exc
 
     return MediaListResponse(
@@ -126,6 +131,7 @@ def list_media(
         total=result.total,
         page=result.page,
         limit=result.limit,
+        total_pages=result.total_pages,
         folder_stats=result.folder_stats,
         type_stats=result.type_stats,
     )
@@ -168,7 +174,7 @@ def media_stats(
 
 @router.post(
     "/upload",
-    response_model=UploadMediaResponse,
+    response_model=UploadMediaApiResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def upload_media(
@@ -180,8 +186,12 @@ async def upload_media(
     admin: Users = Depends(get_current_admin),
     use_case: UploadMedia = Depends(get_upload_media),
 ) -> JSONResponse:
-    """Upload a media file (multipart). Returns 201 for a new asset, or 200 when
-    an identical file (by SHA-256) already exists (`duplicate: true`)."""
+    """Upload a media file (multipart/form-data).
+
+    Returns 201 with a flat asset object plus a ``warnings`` list.
+    The ``warnings`` list is non-empty only when the upload succeeded with
+    caveats (e.g. OG image with wrong dimensions).
+    """
     content = await file.read()
     command = UploadMediaCommand(
         content=content,
@@ -195,40 +205,56 @@ async def upload_media(
 
     try:
         result = use_case.execute(command)
+    except EmptyFileError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "EMPTY_FILE", "message": "Uploaded file is empty"},
+        )
+    except InvalidFolderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "INVALID_FOLDER", "message": str(exc)},
+        ) from exc
+    except ResourceTypeMismatchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "RESOURCE_TYPE_MISMATCH", "message": str(exc)},
+        ) from exc
     except UnsupportedFileTypeError as exc:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail={"got": exc.got, "allowed": exc.allowed},
+            detail={
+                "error": "UNSUPPORTED_FILE_TYPE",
+                "message": f"File type .{exc.got} is not allowed",
+                "detail": {"allowed": exc.allowed},
+            },
         ) from exc
     except FileTooLargeError as exc:
+        resource_label = "Video" if exc.max_bytes > IMAGE_MAX_BYTES else "Image"
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail={"max_bytes": exc.max_bytes, "limit": exc.limit},
+            detail={
+                "error": "FILE_TOO_LARGE",
+                "message": f"{resource_label} files cannot exceed {exc.limit}",
+                "detail": {"max_bytes": exc.max_bytes},
+            },
         ) from exc
     except StorageUploadError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={"attempts": exc.attempts, "request_id": exc.request_id},
+            detail={
+                "error": "CLOUDINARY_UPLOAD_FAILED",
+                "message": f"Upload to Cloudinary failed after {exc.attempts} attempts",
+            },
         ) from exc
 
-    # Build the envelope explicitly so the `asset` object keeps its null fields
-    # (e.g. alt_text: null) while the top-level `renamed`/`rename_note` keys are
-    # present only when meaningful — matching the contract per case:
-    #   duplicate → {duplicate, asset}
-    #   new       → {duplicate, asset, renamed}        (+ rename_note if renamed)
-    payload: dict = {
-        "duplicate": result.duplicate,
-        "asset": UploadedAssetResponse.model_validate(result.asset).model_dump(
-            mode="json"
-        ),
+    # Flat response matching the API 15 spec: all asset fields at the top level
+    # plus a warnings list (non-empty only for OG images with wrong dimensions).
+    payload = {
+        **UploadedAssetResponse.model_validate(result.asset).model_dump(mode="json"),
+        "warnings": result.warnings,
     }
-    if not result.duplicate:
-        payload["renamed"] = result.renamed
-        if result.rename_note is not None:
-            payload["rename_note"] = result.rename_note
-
-    status_code = status.HTTP_200_OK if result.duplicate else status.HTTP_201_CREATED
-    return JSONResponse(status_code=status_code, content=payload)
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content=payload)
 
 
 def _asset_payload(result: UploadMediaResult) -> dict:
@@ -438,7 +464,7 @@ def update_media_asset(
     return JSONResponse(status_code=status.HTTP_200_OK, content=payload)
 
 
-def _run_delete(action: Callable[[], None]) -> Response:
+def _run_delete(action: Callable[[], object]) -> Response:
     try:
         action()
     except NotFoundError as exc:

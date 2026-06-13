@@ -37,6 +37,7 @@ class SqlAlchemyProjectRepository(ProjectRepository):
             title=new.title,
             slug=new.slug,
             excerpt=new.excerpt,
+            thumbnail_url=new.thumbnail_url,
             tech_stack=new.tech_stack,
             template_id=new.template_id,
             github_url=new.github_url,

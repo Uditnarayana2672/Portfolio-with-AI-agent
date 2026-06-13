@@ -13,31 +13,39 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api.v1.dependencies.auth import get_current_admin
-from app.api.v1.dependencies.providers import get_add_block, get_create_project, get_delete_block, get_delete_project, get_get_project, get_toggle_feature, get_update_block, get_update_project
+from app.api.v1.dependencies.providers import get_add_block, get_check_slug_availability, get_create_project, get_delete_block, get_delete_project, get_duplicate_project, get_get_project, get_reorder_blocks, get_toggle_feature, get_update_block, get_update_project
 from app.api.v1.schemas.block_config import BLOCK_CONFIG_MODELS
 from app.api.v1.schemas.project import (
     AddBlockRequest,
     BlockResponse,
     CreateProjectRequest,
     CreateProjectResponse,
+    DuplicateProjectRequest,
+    DuplicateProjectResponse,
     GetProjectResponse,
+    ReorderBlocksRequest,
+    ReorderBlocksResponse,
     SeoResponse,
+    SlugCheckResponse,
     ToggleFeatureRequest,
     ToggleFeatureResponse,
     UpdateBlockRequest,
     UpdateProjectRequest,
     UpdateProjectResponse,
 )
-from app.application.dtos.project import MAX_FEATURED_PROJECTS, AddBlockCommand, CreateProjectCommand, SeoInput, ToggleFeatureCommand, UpdateBlockCommand, UpdateProjectCommand
+from app.application.dtos.project import MAX_FEATURED_PROJECTS, AddBlockCommand, CheckSlugCommand, CreateProjectCommand, DuplicateProjectCommand, ReorderBlocksCommand, SeoInput, ToggleFeatureCommand, UpdateBlockCommand, UpdateProjectCommand
 from app.application.use_cases.projects.add_block import AddBlock
+from app.application.use_cases.projects.check_slug_availability import CheckSlugAvailability
 from app.application.use_cases.projects.create_project import CreateProject
+from app.application.use_cases.projects.duplicate_project import DuplicateProject
 from app.application.use_cases.projects.delete_block import DeleteBlock
 from app.application.use_cases.projects.delete_project import DeleteProject
 from app.application.use_cases.projects.get_project import GetProject
+from app.application.use_cases.projects.reorder_blocks import ReorderBlocks
 from app.application.use_cases.projects.toggle_feature import ToggleFeature
 from app.application.use_cases.projects.update_block import UpdateBlock
 from app.application.use_cases.projects.update_project import UpdateProject
-from app.domain.exceptions import CodeTooLongError, ConflictError, NotFoundError, PermissionError, SlugTakenError, ValidationError
+from app.domain.exceptions import BlockReorderError, CodeTooLongError, ConflictError, NotFoundError, PermissionError, SlugTakenError, ValidationError
 from app.infrastructure.persistence.orm.models import Users
 
 router = APIRouter(prefix="/admin/projects", tags=["Projects"])
@@ -113,6 +121,100 @@ def create_project(
         published_at=result.published_at,
         created_at=result.created_at,
         updated_at=result.updated_at,
+    )
+
+
+@router.post(
+    "/{project_id}/duplicate",
+    status_code=status.HTTP_201_CREATED,
+    response_model=DuplicateProjectResponse,
+    summary="Duplicate a project",
+    description=(
+        "Create a complete copy of an existing project, including all its content blocks. "
+        "The duplicate is always created as a **draft** with `views` reset to `0`, "
+        "`is_featured` set to `false`, `published_at` set to `null`, and "
+        "`seo.canonical_url` cleared to avoid duplicate canonical conflicts. "
+        "If `new_title` is omitted the title defaults to `'{original} (copy)'`. "
+        "If `new_slug` is omitted it is auto-generated from the new title with a "
+        "numeric suffix on collision. "
+        "If `new_slug` is provided but already taken, the request fails with `409 SLUG_TAKEN`."
+    ),
+)
+def duplicate_project(
+    project_id: uuid.UUID,
+    body: DuplicateProjectRequest,
+    current_admin: Users = Depends(get_current_admin),
+    use_case: DuplicateProject = Depends(get_duplicate_project),
+) -> DuplicateProjectResponse:
+    cmd = DuplicateProjectCommand(
+        source_id=project_id,
+        author_id=current_admin.id,
+        new_title=body.new_title,
+        new_slug=body.new_slug,
+    )
+
+    try:
+        result = use_case.execute(cmd)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "PROJECT_NOT_FOUND", "message": str(exc)},
+        ) from exc
+    except SlugTakenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "SLUG_TAKEN",
+                "message": str(exc),
+                "detail": {"suggested": exc.suggested},
+            },
+        ) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": str(exc)},
+        ) from exc
+
+    p = result.new_project
+    return DuplicateProjectResponse(
+        original_id=result.original_id,
+        new_project=GetProjectResponse(
+            id=p.id,
+            title=p.title,
+            slug=p.slug,
+            excerpt=p.excerpt,
+            thumbnail_url=p.thumbnail_url,
+            tech_stack=p.tech_stack,
+            template_id=p.template_id,
+            github_url=p.github_url,
+            demo_url=p.demo_url,
+            status=p.status,
+            visibility=p.visibility,
+            is_featured=p.is_featured,
+            views=p.views,
+            seo=SeoResponse(
+                meta_title=p.seo.get("meta_title"),
+                meta_description=p.seo.get("meta_description"),
+                og_image_url=p.seo.get("og_image_url"),
+                canonical_url=p.seo.get("canonical_url"),
+            ),
+            blocks=[
+                BlockResponse(
+                    id=b.id,
+                    project_id=b.project_id,
+                    block_type=b.block_type,
+                    position=b.position,
+                    config=b.config,
+                    created_at=b.created_at,
+                    updated_at=b.updated_at,
+                )
+                for b in p.blocks
+            ],
+            author_id=p.author_id,
+            published_at=p.published_at,
+            created_at=p.created_at,
+            updated_at=p.updated_at,
+        ),
     )
 
 
@@ -396,6 +498,54 @@ def update_project(
     )
 
 
+# IMPORTANT: this route MUST be registered before /{project_id}/blocks/{block_id}.
+# FastAPI matches routes in declaration order; registering /reorder after /{block_id}
+# causes FastAPI to try to parse the literal string "reorder" as a UUID and return 422.
+@router.patch(
+    "/{project_id}/blocks/reorder",
+    status_code=status.HTTP_200_OK,
+    response_model=ReorderBlocksResponse,
+    summary="Reorder all blocks on a project",
+    description=(
+        "Reorder every content block on a project page by supplying the complete "
+        "ordered array of block UUIDs. The server assigns position 0, 1, 2 … in "
+        "the order they appear in `block_ids`. The array **must** contain every "
+        "block UUID for this project — subsets are rejected with 400."
+    ),
+)
+def reorder_blocks(
+    project_id: uuid.UUID,
+    body: ReorderBlocksRequest,
+    current_admin: Users = Depends(get_current_admin),
+    use_case: ReorderBlocks = Depends(get_reorder_blocks),
+) -> ReorderBlocksResponse:
+    cmd = ReorderBlocksCommand(
+        project_id=project_id,
+        requester_id=current_admin.id,
+        block_ids=list(body.block_ids),
+    )
+
+    try:
+        result = use_case.execute(cmd)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "PROJECT_NOT_FOUND", "message": str(exc)},
+        ) from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "FORBIDDEN", "message": str(exc)},
+        ) from exc
+    except BlockReorderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": exc.error_code, "message": str(exc)},
+        ) from exc
+
+    return ReorderBlocksResponse(success=True, block_count=result.block_count)
+
+
 @router.delete(
     "/{project_id}/blocks/{block_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -418,7 +568,7 @@ def delete_block(
     except NotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "BLOCK_NOT_FOUND", "message": str(exc)},
+            detail={"error": "BLOCK_NOT_FOUND", "message": "Block not found on this project"},
         ) from exc
     except PermissionError as exc:
         raise HTTPException(
@@ -483,6 +633,59 @@ def update_block(
         config=result.config,
         created_at=result.created_at,
         updated_at=result.updated_at,
+    )
+
+
+# IMPORTANT: this route MUST be registered before /{project_id}.
+# FastAPI matches routes in declaration order; registering /slug-check after
+# /{project_id} causes FastAPI to parse "slug-check" as a UUID and return 422.
+@router.get(
+    "/slug-check",
+    status_code=status.HTTP_200_OK,
+    response_model=SlugCheckResponse,
+    summary="Check slug availability",
+    description=(
+        "Checks whether a given slug is available before the user saves the project. "
+        "The slug is normalized (lowercase, spaces→hyphens, special chars stripped) before "
+        "the DB check; the normalized form is returned in the response. "
+        "Pass `exclude_id` when editing an existing project so its own current slug is "
+        "not reported as taken. Reserved slugs (`admin`, `api`, `auth`, `health`, `login`, "
+        "`logout`, `me`, `settings`) are never available regardless of DB state."
+    ),
+)
+def check_slug_availability(
+    slug: str | None = None,
+    exclude_id: str | None = None,
+    _: Users = Depends(get_current_admin),
+    use_case: CheckSlugAvailability = Depends(get_check_slug_availability),
+) -> SlugCheckResponse:
+    if not slug:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "MISSING_PARAM", "message": "slug query parameter is required"},
+        )
+
+    parsed_exclude_id: uuid.UUID | None = None
+    if exclude_id:
+        try:
+            parsed_exclude_id = uuid.UUID(exclude_id)
+        except ValueError:
+            parsed_exclude_id = None
+
+    cmd = CheckSlugCommand(slug=slug, exclude_id=parsed_exclude_id)
+
+    try:
+        result = use_case.execute(cmd)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "INVALID_SLUG", "message": str(exc)},
+        ) from exc
+
+    return SlugCheckResponse(
+        slug=result.slug,
+        available=result.available,
+        suggested=result.suggested,
     )
 
 

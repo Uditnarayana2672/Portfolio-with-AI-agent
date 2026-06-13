@@ -107,3 +107,18 @@ class SqlAlchemyBlockRepository(BlockRepository):
     def delete(self, block_id: uuid.UUID) -> None:
         self._db.execute(sa_delete(ProjectBlocks).where(ProjectBlocks.id == block_id))
         self._db.flush()
+
+    def reorder(self, project_id: uuid.UUID, ordered_block_ids: list[uuid.UUID]) -> None:
+        for position, block_id in enumerate(ordered_block_ids):
+            self._db.execute(
+                sa_update(ProjectBlocks)
+                .where(
+                    ProjectBlocks.id == block_id,
+                    ProjectBlocks.project_id == project_id,
+                )
+                .values(
+                    position=position,
+                    updated_at=func.now(),
+                )
+            )
+        self._db.flush()
