@@ -75,3 +75,25 @@ class ProjectRepository(ABC):
         remove the blocks explicitly (in the same transaction) before the project.
         Callers must confirm the row exists before calling. Flushes; the request
         session commits."""
+
+    @abstractmethod
+    def publish(self, project_id: uuid.UUID) -> Project:
+        """Set status='published' and published_at=now() for a project atomically.
+        Callers must confirm the row exists before calling. Flushes; the request
+        session commits."""
+
+    @abstractmethod
+    def list_projects(
+        self,
+        author_id: uuid.UUID,
+        status_filter: str | None,
+        search: str | None,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[Project], int]:
+        """Return (projects, total_count) for the given author.
+
+        Filters: ``status_filter`` (None = all statuses), ``search`` (ILIKE on
+        title, None = no filter). Results are ordered by ``created_at`` desc.
+        ``page`` and ``page_size`` control pagination (1-based page index).
+        """

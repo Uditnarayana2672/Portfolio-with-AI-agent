@@ -27,6 +27,12 @@ ALLOWED_UPDATE_STATUS: frozenset[str] = frozenset({
     "published",
 })
 
+ALLOWED_LIST_STATUS: frozenset[str] = frozenset({
+    "draft",
+    "published",
+    "archived",
+})
+
 SUPPORTED_BLOCK_TYPES: frozenset[str] = frozenset({
     "hero",
     "text",
@@ -233,3 +239,53 @@ class DuplicateProjectCommand:
 class DuplicateProjectResult:
     original_id: uuid.UUID
     new_project: GetProjectResult
+
+
+@dataclass(frozen=True)
+class PublishProjectCommand:
+    project_id: uuid.UUID
+    author_id: uuid.UUID
+
+
+@dataclass(frozen=True)
+class PublishProjectResult:
+    id: uuid.UUID
+    slug: str
+    status: str
+    published_at: datetime.datetime
+
+
+@dataclass
+class ListProjectsCommand:
+    author_id: uuid.UUID
+    status: str | None = None
+    search: str | None = None
+    page: int = 1
+    page_size: int = 20
+
+
+@dataclass(frozen=True)
+class ProjectSummaryResult:
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+    template_id: str
+    status: str
+    is_featured: bool
+    views: int
+    tech_stack: list[str]
+    github_url: str | None
+    demo_url: str | None
+    published_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
+@dataclass(frozen=True)
+class ListProjectsResult:
+    items: list[ProjectSummaryResult]
+    total: int
+    page: int
+    page_size: int

@@ -112,6 +112,18 @@ class BlockReorderError(DomainError):
         self.error_code = error_code
 
 
+class PublishBlockedError(DomainError):
+    """The project cannot be published because required fields are missing or
+    content is incomplete (→ HTTP 422).
+
+    Carries all human-readable issues so the API can surface them at once.
+    """
+
+    def __init__(self, issues: list[str]) -> None:
+        super().__init__(f"Publish blocked: {', '.join(issues)}")
+        self.issues = list(issues)
+
+
 class InvalidUrlError(DomainError):
     """The supplied URL is malformed or uses a disallowed scheme (→ HTTP 400)."""
 

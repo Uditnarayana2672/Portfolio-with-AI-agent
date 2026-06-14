@@ -10,10 +10,11 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api.v1.dependencies.auth import get_current_admin
-from app.api.v1.dependencies.providers import get_add_block, get_check_slug_availability, get_create_project, get_delete_block, get_delete_project, get_duplicate_project, get_get_project, get_reorder_blocks, get_toggle_feature, get_update_block, get_update_project
+from app.api.v1.dependencies.providers import get_add_block, get_check_slug_availability, get_create_project, get_delete_block, get_delete_project, get_duplicate_project, get_get_project, get_list_projects, get_publish_project, get_reorder_blocks, get_toggle_feature, get_update_block, get_update_project
 from app.api.v1.schemas.block_config import BLOCK_CONFIG_MODELS
 from app.api.v1.schemas.project import (
     AddBlockRequest,
@@ -23,6 +24,9 @@ from app.api.v1.schemas.project import (
     DuplicateProjectRequest,
     DuplicateProjectResponse,
     GetProjectResponse,
+    ListProjectsResponse,
+    ProjectSummaryResponse,
+    PublishProjectResponse,
     ReorderBlocksRequest,
     ReorderBlocksResponse,
     SeoResponse,
@@ -33,8 +37,10 @@ from app.api.v1.schemas.project import (
     UpdateProjectRequest,
     UpdateProjectResponse,
 )
-from app.application.dtos.project import MAX_FEATURED_PROJECTS, AddBlockCommand, CheckSlugCommand, CreateProjectCommand, DuplicateProjectCommand, ReorderBlocksCommand, SeoInput, ToggleFeatureCommand, UpdateBlockCommand, UpdateProjectCommand
+from app.application.dtos.project import MAX_FEATURED_PROJECTS, AddBlockCommand, CheckSlugCommand, CreateProjectCommand, DuplicateProjectCommand, ListProjectsCommand, PublishProjectCommand, ReorderBlocksCommand, SeoInput, ToggleFeatureCommand, UpdateBlockCommand, UpdateProjectCommand
 from app.application.use_cases.projects.add_block import AddBlock
+from app.application.use_cases.projects.list_projects import ListProjects
+from app.application.use_cases.projects.publish_project import PublishProject
 from app.application.use_cases.projects.check_slug_availability import CheckSlugAvailability
 from app.application.use_cases.projects.create_project import CreateProject
 from app.application.use_cases.projects.duplicate_project import DuplicateProject
@@ -45,7 +51,7 @@ from app.application.use_cases.projects.reorder_blocks import ReorderBlocks
 from app.application.use_cases.projects.toggle_feature import ToggleFeature
 from app.application.use_cases.projects.update_block import UpdateBlock
 from app.application.use_cases.projects.update_project import UpdateProject
-from app.domain.exceptions import BlockReorderError, CodeTooLongError, ConflictError, NotFoundError, PermissionError, SlugTakenError, ValidationError
+from app.domain.exceptions import BlockReorderError, CodeTooLongError, ConflictError, NotFoundError, PermissionError, PublishBlockedError, SlugTakenError, ValidationError
 from app.infrastructure.persistence.orm.models import Users
 
 router = APIRouter(prefix="/admin/projects", tags=["Projects"])
@@ -121,6 +127,70 @@ def create_project(
         published_at=result.published_at,
         created_at=result.created_at,
         updated_at=result.updated_at,
+    )
+
+
+@router.get(
+    "",
+    status_code=status.HTTP_200_OK,
+    response_model=ListProjectsResponse,
+    summary="List projects",
+    description=(
+        "Return a paginated list of the current admin's projects. "
+        "Optionally filter by `status` (draft | published | archived) "
+        "and/or `search` (case-insensitive substring match on the title). "
+        "Results are ordered by creation date descending. "
+        "`page_size` is capped at 100."
+    ),
+)
+def list_projects(
+    status_filter: str | None = None,
+    search: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    current_admin: Users = Depends(get_current_admin),
+    use_case: ListProjects = Depends(get_list_projects),
+) -> ListProjectsResponse:
+    cmd = ListProjectsCommand(
+        author_id=current_admin.id,
+        status=status_filter,
+        search=search,
+        page=page,
+        page_size=page_size,
+    )
+
+    try:
+        result = use_case.execute(cmd)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": str(exc)},
+        ) from exc
+
+    return ListProjectsResponse(
+        items=[
+            ProjectSummaryResponse(
+                id=item.id,
+                title=item.title,
+                slug=item.slug,
+                excerpt=item.excerpt,
+                thumbnail_url=item.thumbnail_url,
+                template_id=item.template_id,
+                status=item.status,
+                is_featured=item.is_featured,
+                views=item.views,
+                tech_stack=item.tech_stack,
+                github_url=item.github_url,
+                demo_url=item.demo_url,
+                published_at=item.published_at,
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+            )
+            for item in result.items
+        ],
+        total=result.total,
+        page=result.page,
+        page_size=result.page_size,
     )
 
 
@@ -215,6 +285,57 @@ def duplicate_project(
             created_at=p.created_at,
             updated_at=p.updated_at,
         ),
+    )
+
+
+@router.post(
+    "/{project_id}/publish",
+    status_code=status.HTTP_200_OK,
+    response_model=PublishProjectResponse,
+    summary="Publish a project",
+    description=(
+        "Transition a project from `draft` to `published`. "
+        "Validates that the project has a title, at least one content block, "
+        "and a meta title for SEO before publishing. "
+        "Returns `422 PUBLISH_BLOCKED` with a list of all issues if validation fails. "
+        "Calling this on an already-published project is a 200 no-op."
+    ),
+)
+def publish_project(
+    project_id: uuid.UUID,
+    current_admin: Users = Depends(get_current_admin),
+    use_case: PublishProject = Depends(get_publish_project),
+) -> PublishProjectResponse | JSONResponse:
+    cmd = PublishProjectCommand(project_id=project_id, author_id=current_admin.id)
+
+    try:
+        result = use_case.execute(cmd)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "PROJECT_NOT_FOUND", "message": str(exc)},
+        ) from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "FORBIDDEN", "message": str(exc)},
+        ) from exc
+    except PublishBlockedError as exc:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "detail": exc.issues[0],
+                "code": "PUBLISH_BLOCKED",
+                "issues": exc.issues,
+            },
+        )
+
+    return PublishProjectResponse(
+        id=result.id,
+        slug=result.slug,
+        status=result.status,
+        published_at=result.published_at,
+        url=f"/projects/{result.slug}",
     )
 
 

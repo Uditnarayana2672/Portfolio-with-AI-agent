@@ -129,6 +129,61 @@ class SqlAlchemyProjectRepository(ProjectRepository):
         self._db.refresh(row)
         return self._to_entity(row), [self._block_to_entity(b) for b in blocks]
 
+    def publish(self, project_id: uuid.UUID) -> Project:
+        row = (
+            self._db.execute(select(Projects).where(Projects.id == project_id))
+            .scalars()
+            .first()
+        )
+        if row is None:
+            raise RuntimeError(f"Project {project_id} vanished between load and publish")
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        row.status = ProjectStatus.PUBLISHED
+        row.published_at = now
+        row.updated_at = now
+        self._db.flush()
+        self._db.refresh(row)
+        return self._to_entity(row)
+
+    def list_projects(
+        self,
+        author_id: uuid.UUID,
+        status_filter: str | None,
+        search: str | None,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[Project], int]:
+        conditions = [Projects.author_id == author_id]
+
+        if status_filter is not None:
+            conditions.append(Projects.status == ProjectStatus(status_filter))
+
+        if search:
+            conditions.append(Projects.title.ilike(f"%{search}%"))
+
+        total = (
+            self._db.scalar(
+                select(func.count()).select_from(Projects).where(*conditions)
+            )
+            or 0
+        )
+
+        offset = (page - 1) * page_size
+        rows = (
+            self._db.execute(
+                select(Projects)
+                .where(*conditions)
+                .order_by(Projects.created_at.desc())
+                .offset(offset)
+                .limit(page_size)
+            )
+            .scalars()
+            .all()
+        )
+
+        return [self._to_entity(row) for row in rows], total
+
     @staticmethod
     def _block_to_entity(row: ProjectBlocks) -> Block:
         return Block(

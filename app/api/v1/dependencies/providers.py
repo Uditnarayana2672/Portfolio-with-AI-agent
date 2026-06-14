@@ -43,10 +43,14 @@ from app.application.use_cases.projects.get_project import GetProject
 from app.application.use_cases.projects.toggle_feature import ToggleFeature
 from app.application.use_cases.projects.reorder_blocks import ReorderBlocks
 from app.application.use_cases.projects.update_block import UpdateBlock
+from app.application.use_cases.forms.list_forms import ListForms
+from app.application.use_cases.projects.list_projects import ListProjects
+from app.application.use_cases.projects.publish_project import PublishProject
 from app.application.use_cases.projects.update_project import UpdateProject
 from app.api.v1.schemas.block_config import PydanticBlockConfigValidator
 from app.domain.repositories.activity_log_repository import ActivityLogRepository
 from app.domain.repositories.block_repository import BlockRepository
+from app.domain.repositories.form_repository import FormRepository
 from app.domain.repositories.media_asset_repository import MediaAssetRepository
 from app.domain.repositories.project_repository import ProjectRepository
 from app.infrastructure.config import settings
@@ -62,6 +66,9 @@ from app.infrastructure.persistence.repositories.media_asset_repository import (
 )
 from app.infrastructure.persistence.repositories.block_repository import (
     SqlAlchemyBlockRepository,
+)
+from app.infrastructure.persistence.repositories.form_repository import (
+    SqlAlchemyFormRepository,
 )
 from app.infrastructure.persistence.repositories.project_repository import (
     SqlAlchemyProjectRepository,
@@ -174,12 +181,39 @@ def get_import_url_media(
     )
 
 
+# ── forms ─────────────────────────────────────────────────────────────────────
+
+
+def get_form_repository(db: Session = Depends(get_db)) -> FormRepository:
+    """Bind the SQLAlchemy form repository to the request's DB session."""
+    return SqlAlchemyFormRepository(db)
+
+
+def get_list_forms(
+    repo: FormRepository = Depends(get_form_repository),
+) -> ListForms:
+    return ListForms(repo=repo)
+
+
 # ── projects ──────────────────────────────────────────────────────────────────
 
 
 def get_project_repository(db: Session = Depends(get_db)) -> ProjectRepository:
     """Bind the SQLAlchemy project repository to the request's DB session."""
     return SqlAlchemyProjectRepository(db)
+
+
+def get_list_projects(
+    repo: ProjectRepository = Depends(get_project_repository),
+) -> ListProjects:
+    return ListProjects(repo=repo)
+
+
+def get_publish_project(
+    repo: ProjectRepository = Depends(get_project_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+) -> PublishProject:
+    return PublishProject(repo=repo, activity=activity)
 
 
 def get_check_slug_availability(

@@ -327,3 +327,50 @@ class GetProjectResponse(BaseModel):
 class DuplicateProjectResponse(BaseModel):
     original_id: uuid.UUID
     new_project: GetProjectResponse
+
+
+class PublishProjectResponse(BaseModel):
+    id: uuid.UUID
+    slug: str
+    status: str
+    published_at: datetime.datetime
+    url: str
+
+    @field_serializer("published_at")
+    def _serialize_published_at(self, value: datetime.datetime) -> str:
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class ProjectSummaryResponse(BaseModel):
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+    template_id: str
+    status: str
+    is_featured: bool
+    views: int
+    tech_stack: list[str]
+    github_url: str | None
+    demo_url: str | None
+    published_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    @field_serializer("created_at", "updated_at")
+    def _serialize_dt(self, value: datetime.datetime) -> str:
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @field_serializer("published_at")
+    def _serialize_published_at(self, value: datetime.datetime | None) -> str | None:
+        if value is None:
+            return None
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class ListProjectsResponse(BaseModel):
+    items: list[ProjectSummaryResponse]
+    total: int
+    page: int
+    page_size: int

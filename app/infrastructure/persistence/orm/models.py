@@ -312,6 +312,26 @@ class Users(Base):
     projects: Mapped[list['Projects']] = relationship('Projects', back_populates='author')
     reactions: Mapped[list['Reactions']] = relationship('Reactions', back_populates='user')
     comments: Mapped[list['Comments']] = relationship('Comments', back_populates='user')
+    forms: Mapped[list['Forms']] = relationship('Forms', back_populates='author')
+
+
+class Forms(Base):
+    __tablename__ = 'forms'
+    __table_args__ = (
+        ForeignKeyConstraint(['author_id'], ['users.id'], name='forms_author_id_fkey'),
+        PrimaryKeyConstraint('id', name='forms_pkey'),
+        Index('idx_forms_author', 'author_id'),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    author_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    form_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'custom'::text"))
+    config: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
+
+    author: Mapped['Users'] = relationship('Users', back_populates='forms')
 
 
 class ActivityLog(Base):
