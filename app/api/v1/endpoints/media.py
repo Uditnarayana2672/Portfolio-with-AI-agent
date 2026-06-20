@@ -50,7 +50,6 @@ from app.api.v1.schemas.media import (
     UpdateMediaRequest,
     UpdateMediaResponse,
     UploadedAssetResponse,
-    UploadMediaApiResponse,
     UploadMediaResponse,
     UsageReferenceResponse,
 )
@@ -174,7 +173,7 @@ def media_stats(
 
 @router.post(
     "/upload",
-    response_model=UploadMediaApiResponse,
+    response_model=UploadMediaResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def upload_media(
@@ -188,9 +187,10 @@ async def upload_media(
 ) -> JSONResponse:
     """Upload a media file (multipart/form-data).
 
-    Returns 201 with a flat asset object plus a ``warnings`` list.
-    The ``warnings`` list is non-empty only when the upload succeeded with
-    caveats (e.g. OG image with wrong dimensions).
+    Returns 201 for a new asset, or 200 when an identical file (by SHA-256)
+    already exists (``duplicate: true``). The ``warnings`` list is non-empty
+    only when the upload succeeded with caveats (e.g. OG image with wrong
+    dimensions).
     """
     content = await file.read()
     command = UploadMediaCommand(
@@ -248,13 +248,20 @@ async def upload_media(
             },
         ) from exc
 
-    # Flat response matching the API 15 spec: all asset fields at the top level
-    # plus a warnings list (non-empty only for OG images with wrong dimensions).
-    payload = {
-        **UploadedAssetResponse.model_validate(result.asset).model_dump(mode="json"),
+    payload: dict = {
+        "duplicate": result.duplicate,
+        "asset": UploadedAssetResponse.model_validate(result.asset).model_dump(
+            mode="json"
+        ),
         "warnings": result.warnings,
     }
-    return JSONResponse(status_code=status.HTTP_201_CREATED, content=payload)
+    if not result.duplicate:
+        payload["renamed"] = result.renamed
+        if result.rename_note is not None:
+            payload["rename_note"] = result.rename_note
+
+    http_status = status.HTTP_200_OK if result.duplicate else status.HTTP_201_CREATED
+    return JSONResponse(status_code=http_status, content=payload)
 
 
 def _asset_payload(result: UploadMediaResult) -> dict:

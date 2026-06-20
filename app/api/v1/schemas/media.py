@@ -183,12 +183,13 @@ class UploadMediaApiResponse(UploadedAssetResponse):
 
 
 class UploadMediaResponse(BaseModel):
-    """Envelope used by the import-url endpoint (legacy shape)."""
+    """Envelope returned by the upload and import-url endpoints."""
 
     duplicate: bool
     asset: UploadedAssetResponse
     renamed: bool | None = None
     rename_note: str | None = None
+    warnings: list[str] = []
 
 
 class ImportUrlRequest(BaseModel):
