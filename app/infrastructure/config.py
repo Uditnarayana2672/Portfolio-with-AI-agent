@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     # thumbnail work without it (via oEmbed).
     YOUTUBE_API_KEY: str = ""
 
+    # ── CORS ─────────────────────────────────────────────────────────────────
+    # Space-separated list of allowed origins. Covers both `localhost` and
+    # `127.0.0.1` because browsers send whichever variant you typed in the bar
+    # (they are NOT equivalent for the CORS origin check).
+    CORS_ALLOWED_ORIGINS: str = (
+        "http://localhost:5173 http://127.0.0.1:5173 "
+        "http://localhost:3000 http://127.0.0.1:3000"
+    )
+
     # Handy flags
     ENVIRONMENT: str = "development"
     DEBUG: bool = True

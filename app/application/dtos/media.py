@@ -43,7 +43,11 @@ ALLOWED_FOLDERS = (
     "projects/diagrams",
     "projects/gallery",
     "projects/videos",
+    "blog/covers",
+    "blog/inline",
     "system/og-images",
+    "system/avatars",
+    "uncategorized",
 )
 # OG image folder + expected dimensions for the social-card warning.
 OG_IMAGE_FOLDER = "system/og-images"

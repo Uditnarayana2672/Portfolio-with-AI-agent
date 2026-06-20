@@ -20,25 +20,33 @@ from app.infrastructure.config import settings
 
 logger = logging.getLogger("app")
 
-ALLOWED_ORIGINS = [
-    "http://localhost:5173",   # Vite default
-    "http://localhost:3000",   # other common React dev port
-]
-
 app = FastAPI(
     title="Portfolio API",
     debug=settings.DEBUG,
 )
 
-# Allow the React+Vite dev server (and later, the production frontend) to
-# call the API from a different origin. Tighten this list before launch.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Dev: wildcard origins so any localhost port works regardless of which URL
+# the browser uses. Auth is Bearer-token only (no cookies), so
+# allow_credentials must stay False — the CORS spec forbids credentials with
+# a wildcard origin and Starlette enforces this at startup.
+# Production: set CORS_ALLOWED_ORIGINS in .env to a space-separated list of
+# real frontend origins and flip allow_credentials if you add cookie auth.
+if settings.ENVIRONMENT == "production":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.CORS_ALLOWED_ORIGINS.split(),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.exception_handler(Exception)
@@ -54,11 +62,14 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     """
     logger.exception("Unhandled error on %s %s", request.method, request.url.path)
     origin = request.headers.get("origin")
-    headers = {}
-    if origin in ALLOWED_ORIGINS:
-        headers["Access-Control-Allow-Origin"] = origin
-        headers["Access-Control-Allow-Credentials"] = "true"
-        headers["Vary"] = "Origin"
+    headers: dict[str, str] = {}
+    if origin:
+        # In dev, wildcard CORS is already set; in prod, echo the origin back
+        # only if it matches the configured allow-list.
+        allowed = settings.CORS_ALLOWED_ORIGINS.split()
+        if settings.ENVIRONMENT != "production" or origin in allowed:
+            headers["Access-Control-Allow-Origin"] = origin
+            headers["Vary"] = "Origin"
     # Never echo str(exc) to the client: raw exception text can leak SQL,
     # file paths, or credentials. The full traceback is in the server log.
     return JSONResponse(
