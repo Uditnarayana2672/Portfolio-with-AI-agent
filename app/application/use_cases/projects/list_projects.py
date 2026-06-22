@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from app.application.dtos.project import (
     ALLOWED_LIST_STATUS,
+    ALLOWED_SORT_BY,
+    ALLOWED_TEMPLATE_IDS,
     ListProjectsCommand,
     ListProjectsResult,
     ProjectSummaryResult,
@@ -25,15 +27,27 @@ class ListProjects:
                 f"Allowed: {sorted(ALLOWED_LIST_STATUS)}"
             )
 
+        if cmd.template_id is not None and cmd.template_id not in ALLOWED_TEMPLATE_IDS:
+            raise ValidationError(
+                f"template_id {cmd.template_id!r} is not valid. "
+                f"Allowed: {sorted(ALLOWED_TEMPLATE_IDS)}"
+            )
+
+        sort_by = cmd.sort_by if cmd.sort_by in ALLOWED_SORT_BY else "created_at"
+        sort_dir = cmd.sort_dir.lower() if cmd.sort_dir.lower() in ("asc", "desc") else "desc"
+
         search = cmd.search.strip() if cmd.search else None
         search = search or None
 
-        projects, total = self._repo.list_projects(
+        projects, reactions_counts, total = self._repo.list_projects(
             author_id=cmd.author_id,
             status_filter=cmd.status,
             search=search,
             page=page,
             page_size=page_size,
+            template_id=cmd.template_id,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
 
         return ListProjectsResult(
@@ -48,6 +62,7 @@ class ListProjects:
                     status=p.status,
                     is_featured=p.is_featured,
                     views=p.views,
+                    reactions_count=reactions_counts[i],
                     tech_stack=p.tech_stack,
                     github_url=p.github_url,
                     demo_url=p.demo_url,
@@ -55,7 +70,7 @@ class ListProjects:
                     created_at=p.created_at,
                     updated_at=p.updated_at,
                 )
-                for p in projects
+                for i, p in enumerate(projects)
             ],
             total=total,
             page=page,

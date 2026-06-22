@@ -57,7 +57,8 @@ def _project(**overrides) -> Project:
 
 def _repo_returning(projects: list[Project], total: int) -> Mock:
     repo = Mock()
-    repo.list_projects.return_value = (projects, total)
+    reactions = [0] * len(projects)
+    repo.list_projects.return_value = (projects, reactions, total)
     return repo
 
 

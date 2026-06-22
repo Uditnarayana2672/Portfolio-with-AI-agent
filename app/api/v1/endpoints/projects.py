@@ -14,17 +14,20 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api.v1.dependencies.auth import get_current_admin
-from app.api.v1.dependencies.providers import get_add_block, get_check_slug_availability, get_create_project, get_delete_block, get_delete_project, get_duplicate_project, get_get_project, get_list_projects, get_publish_project, get_reorder_blocks, get_toggle_feature, get_update_block, get_update_project
+from app.api.v1.dependencies.providers import get_add_block, get_bulk_action, get_check_slug_availability, get_create_project, get_delete_block, get_delete_project, get_duplicate_project, get_get_project, get_get_status_counts, get_list_projects, get_publish_project, get_reorder_blocks, get_toggle_feature, get_update_block, get_update_project
 from app.api.v1.schemas.block_config import BLOCK_CONFIG_MODELS
 from app.api.v1.schemas.project import (
     AddBlockRequest,
     BlockResponse,
+    BulkActionRequest,
+    BulkActionResponse,
     CreateProjectRequest,
     CreateProjectResponse,
     DuplicateProjectRequest,
     DuplicateProjectResponse,
     GetProjectResponse,
     ListProjectsResponse,
+    ProjectStatusCountsResponse,
     ProjectSummaryResponse,
     PublishProjectResponse,
     ReorderBlocksRequest,
@@ -37,8 +40,9 @@ from app.api.v1.schemas.project import (
     UpdateProjectRequest,
     UpdateProjectResponse,
 )
-from app.application.dtos.project import MAX_FEATURED_PROJECTS, AddBlockCommand, CheckSlugCommand, CreateProjectCommand, DuplicateProjectCommand, ListProjectsCommand, PublishProjectCommand, ReorderBlocksCommand, SeoInput, ToggleFeatureCommand, UpdateBlockCommand, UpdateProjectCommand
+from app.application.dtos.project import MAX_FEATURED_PROJECTS, ALLOWED_SORT_BY, AddBlockCommand, BulkActionCommand, CheckSlugCommand, CreateProjectCommand, DuplicateProjectCommand, ListProjectsCommand, PublishProjectCommand, ReorderBlocksCommand, SeoInput, ToggleFeatureCommand, UpdateBlockCommand, UpdateProjectCommand
 from app.application.use_cases.projects.add_block import AddBlock
+from app.application.use_cases.projects.bulk_action import BulkAction
 from app.application.use_cases.projects.list_projects import ListProjects
 from app.application.use_cases.projects.publish_project import PublishProject
 from app.application.use_cases.projects.check_slug_availability import CheckSlugAvailability
@@ -47,11 +51,12 @@ from app.application.use_cases.projects.duplicate_project import DuplicateProjec
 from app.application.use_cases.projects.delete_block import DeleteBlock
 from app.application.use_cases.projects.delete_project import DeleteProject
 from app.application.use_cases.projects.get_project import GetProject
+from app.application.use_cases.projects.get_status_counts import GetStatusCounts
 from app.application.use_cases.projects.reorder_blocks import ReorderBlocks
 from app.application.use_cases.projects.toggle_feature import ToggleFeature
 from app.application.use_cases.projects.update_block import UpdateBlock
 from app.application.use_cases.projects.update_project import UpdateProject
-from app.domain.exceptions import BlockReorderError, CodeTooLongError, ConflictError, NotFoundError, PermissionError, PublishBlockedError, SlugTakenError, ValidationError
+from app.domain.exceptions import BlockReorderError, BulkPermissionError, CodeTooLongError, ConflictError, NotFoundError, PermissionError, PublishBlockedError, SlugTakenError, ValidationError
 from app.infrastructure.persistence.orm.models import Users
 
 router = APIRouter(prefix="/admin/projects", tags=["Projects"])
@@ -137,10 +142,12 @@ def create_project(
     summary="List projects",
     description=(
         "Return a paginated list of the current admin's projects. "
-        "Optionally filter by `status` (draft | published | archived) "
-        "and/or `search` (case-insensitive substring match on the title). "
-        "Results are ordered by creation date descending. "
-        "`page_size` is capped at 100."
+        "Optionally filter by `status` (draft | published | archived), "
+        "`template_id`, and/or `search` (case-insensitive substring match on title). "
+        "`sort_by` accepts: title | created_at | updated_at | views | status. "
+        "`sort_dir` is asc or desc (default desc). "
+        "`page_size` is capped at 100. "
+        "Each item includes `reactions_count` from the reactions table."
     ),
 )
 def list_projects(
@@ -148,15 +155,32 @@ def list_projects(
     search: str | None = None,
     page: int = 1,
     page_size: int = 20,
+    template_id: str | None = None,
+    sort_by: str = "created_at",
+    sort_dir: str = "desc",
     current_admin: Users = Depends(get_current_admin),
     use_case: ListProjects = Depends(get_list_projects),
 ) -> ListProjectsResponse:
+    if sort_by not in ALLOWED_SORT_BY:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": f"sort_by must be one of: {sorted(ALLOWED_SORT_BY)}"},
+        )
+    if sort_dir.lower() not in ("asc", "desc"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": "sort_dir must be 'asc' or 'desc'"},
+        )
+
     cmd = ListProjectsCommand(
         author_id=current_admin.id,
         status=status_filter,
         search=search,
         page=page,
         page_size=page_size,
+        template_id=template_id,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
 
     try:
@@ -179,6 +203,7 @@ def list_projects(
                 status=item.status,
                 is_featured=item.is_featured,
                 views=item.views,
+                reactions_count=item.reactions_count,
                 tech_stack=item.tech_stack,
                 github_url=item.github_url,
                 demo_url=item.demo_url,
@@ -191,6 +216,89 @@ def list_projects(
         total=result.total,
         page=result.page,
         page_size=result.page_size,
+    )
+
+
+# IMPORTANT: registered before /{project_id} — "status-counts" would otherwise
+# be parsed as a UUID and return 422.
+@router.get(
+    "/status-counts",
+    status_code=status.HTTP_200_OK,
+    response_model=ProjectStatusCountsResponse,
+    summary="Get per-status project counts",
+    description=(
+        "Return a count of projects per status (draft / published / archived) "
+        "for the current admin in a single DB query. Powers the filter pill numbers "
+        "at the top of the Project Manager table."
+    ),
+)
+def get_status_counts(
+    current_admin: Users = Depends(get_current_admin),
+    use_case: GetStatusCounts = Depends(get_get_status_counts),
+) -> ProjectStatusCountsResponse:
+    result = use_case.execute(current_admin.id)
+    return ProjectStatusCountsResponse(
+        total=result.total,
+        draft=result.draft,
+        published=result.published,
+        archived=result.archived,
+    )
+
+
+# IMPORTANT: registered before /{project_id}/... routes — "bulk" would otherwise
+# be parsed as a UUID and return 422.
+@router.post(
+    "/bulk",
+    status_code=status.HTTP_200_OK,
+    response_model=BulkActionResponse,
+    summary="Bulk action on multiple projects",
+    description=(
+        "Execute one action (publish / archive / feature / unfeature / delete) "
+        "across multiple projects atomically. All project IDs must belong to the "
+        "authenticated admin — any foreign ID returns 403 and aborts the operation. "
+        "Max 100 IDs per request."
+    ),
+)
+def bulk_action(
+    body: BulkActionRequest,
+    current_admin: Users = Depends(get_current_admin),
+    use_case: BulkAction = Depends(get_bulk_action),
+) -> BulkActionResponse:
+    cmd = BulkActionCommand(
+        author_id=current_admin.id,
+        action=body.action,
+        project_ids=list(body.project_ids),
+    )
+
+    try:
+        result = use_case.execute(cmd)
+    except BulkPermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "FORBIDDEN",
+                "message": str(exc),
+                "detail": {"foreign_ids": [str(fid) for fid in exc.foreign_ids]},
+            },
+        ) from exc
+    except ConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "FEATURED_LIMIT_REACHED", "message": str(exc)},
+        ) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": str(exc)},
+        ) from exc
+
+    return BulkActionResponse(
+        action=result.action,
+        requested=result.requested,
+        succeeded=result.succeeded,
+        failed=result.failed,
+        skipped=result.skipped,
+        project_ids=result.project_ids,
     )
 
 

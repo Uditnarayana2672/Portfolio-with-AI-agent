@@ -14,6 +14,7 @@ ALLOWED_TEMPLATE_IDS: frozenset[str] = frozenset({
     "gallery",
     "case-study",
     "minimal",
+    "interactive",
 })
 
 ALLOWED_VISIBILITY: frozenset[str] = frozenset({
@@ -25,6 +26,7 @@ ALLOWED_VISIBILITY: frozenset[str] = frozenset({
 ALLOWED_UPDATE_STATUS: frozenset[str] = frozenset({
     "draft",
     "published",
+    "archived",
 })
 
 ALLOWED_LIST_STATUS: frozenset[str] = frozenset({
@@ -262,6 +264,9 @@ class ListProjectsCommand:
     search: str | None = None
     page: int = 1
     page_size: int = 20
+    template_id: str | None = None
+    sort_by: str = "created_at"
+    sort_dir: str = "desc"
 
 
 @dataclass(frozen=True)
@@ -275,6 +280,7 @@ class ProjectSummaryResult:
     status: str
     is_featured: bool
     views: int
+    reactions_count: int
     tech_stack: list[str]
     github_url: str | None
     demo_url: str | None
@@ -289,3 +295,46 @@ class ListProjectsResult:
     total: int
     page: int
     page_size: int
+
+
+ALLOWED_SORT_BY: frozenset[str] = frozenset({
+    "title",
+    "created_at",
+    "updated_at",
+    "views",
+    "status",
+})
+
+
+@dataclass(frozen=True)
+class StatusCountsResult:
+    total: int
+    draft: int
+    published: int
+    archived: int
+
+
+ALLOWED_BULK_ACTIONS: frozenset[str] = frozenset({
+    "publish",
+    "archive",
+    "feature",
+    "unfeature",
+    "delete",
+})
+
+
+@dataclass
+class BulkActionCommand:
+    author_id: uuid.UUID
+    action: str
+    project_ids: list[uuid.UUID]
+
+
+@dataclass(frozen=True)
+class BulkActionResult:
+    action: str
+    requested: int
+    succeeded: int
+    failed: int
+    skipped: int
+    project_ids: list[uuid.UUID]

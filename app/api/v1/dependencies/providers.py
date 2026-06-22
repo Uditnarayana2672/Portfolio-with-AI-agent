@@ -33,6 +33,7 @@ from app.application.use_cases.media.list_media import ListMedia
 from app.application.use_cases.media.update_media import UpdateMedia
 from app.application.use_cases.media.upload_media import UploadMedia
 from app.application.use_cases.projects.add_block import AddBlock
+from app.application.use_cases.projects.bulk_action import BulkAction
 from app.application.use_cases.projects.check_slug_availability import CheckSlugAvailability
 from app.application.use_cases.projects.create_project import CreateProject
 from app.application.use_cases.projects.duplicate_project import DuplicateProject
@@ -40,6 +41,7 @@ from app.application.use_cases.projects.delete_block import DeleteBlock
 from app.application.use_cases.projects.delete_project import DeleteProject
 from app.application.interfaces.block_config_validator import BlockConfigValidator
 from app.application.use_cases.projects.get_project import GetProject
+from app.application.use_cases.projects.get_status_counts import GetStatusCounts
 from app.application.use_cases.projects.toggle_feature import ToggleFeature
 from app.application.use_cases.projects.reorder_blocks import ReorderBlocks
 from app.application.use_cases.projects.update_block import UpdateBlock
@@ -310,3 +312,15 @@ def get_reorder_blocks(
     activity: ActivityLogRepository = Depends(get_activity_repository),
 ) -> ReorderBlocks:
     return ReorderBlocks(project_repo=project_repo, block_repo=block_repo, activity=activity)
+
+
+def get_get_status_counts(
+    repo: ProjectRepository = Depends(get_project_repository),
+) -> GetStatusCounts:
+    return GetStatusCounts(repo=repo)
+
+
+def get_bulk_action(
+    repo: ProjectRepository = Depends(get_project_repository),
+) -> BulkAction:
+    return BulkAction(repo=repo)

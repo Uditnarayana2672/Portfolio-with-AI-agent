@@ -351,6 +351,7 @@ class ProjectSummaryResponse(BaseModel):
     status: str
     is_featured: bool
     views: int
+    reactions_count: int = 0
     tech_stack: list[str]
     github_url: str | None
     demo_url: str | None
@@ -374,3 +375,40 @@ class ListProjectsResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ProjectStatusCountsResponse(BaseModel):
+    total: int
+    draft: int
+    published: int
+    archived: int
+
+
+class BulkActionRequest(BaseModel):
+    action: str = Field(
+        ...,
+        description="One of: publish, archive, feature, unfeature, delete.",
+    )
+    project_ids: list[uuid.UUID] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="IDs of projects to act on. Max 100.",
+    )
+
+    @field_validator("action")
+    @classmethod
+    def action_allowed(cls, v: str) -> str:
+        allowed = {"publish", "archive", "feature", "unfeature", "delete"}
+        if v not in allowed:
+            raise ValueError(f"action must be one of: {sorted(allowed)}")
+        return v
+
+
+class BulkActionResponse(BaseModel):
+    action: str
+    requested: int
+    succeeded: int
+    failed: int
+    skipped: int
+    project_ids: list[uuid.UUID]

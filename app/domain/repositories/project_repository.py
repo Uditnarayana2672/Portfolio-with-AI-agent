@@ -90,10 +90,42 @@ class ProjectRepository(ABC):
         search: str | None,
         page: int,
         page_size: int,
-    ) -> tuple[list[Project], int]:
-        """Return (projects, total_count) for the given author.
+        template_id: str | None = None,
+        sort_by: str = "created_at",
+        sort_dir: str = "desc",
+    ) -> tuple[list[Project], list[int], int]:
+        """Return (projects, reactions_counts, total_count) for the given author.
 
         Filters: ``status_filter`` (None = all statuses), ``search`` (ILIKE on
-        title, None = no filter). Results are ordered by ``created_at`` desc.
+        title, None = no filter), ``template_id`` (None = all templates).
+        ``sort_by`` / ``sort_dir`` control ordering.
         ``page`` and ``page_size`` control pagination (1-based page index).
         """
+
+    @abstractmethod
+    def get_status_counts(self, author_id: uuid.UUID) -> dict[str, int]:
+        """Return per-status project counts for the author as {status: count}."""
+
+    @abstractmethod
+    def bulk_update_status(
+        self, project_ids: list[uuid.UUID], status: str, author_id: uuid.UUID
+    ) -> list[uuid.UUID]:
+        """Set status for all given projects owned by author. Returns mutated IDs."""
+
+    @abstractmethod
+    def bulk_delete(
+        self, project_ids: list[uuid.UUID], author_id: uuid.UUID
+    ) -> list[uuid.UUID]:
+        """Delete all given projects (and their blocks) owned by author. Returns deleted IDs."""
+
+    @abstractmethod
+    def bulk_set_featured(
+        self, project_ids: list[uuid.UUID], is_featured: bool, author_id: uuid.UUID
+    ) -> list[uuid.UUID]:
+        """Set is_featured for all given projects owned by author. Returns mutated IDs."""
+
+    @abstractmethod
+    def get_owned_ids(
+        self, project_ids: list[uuid.UUID], author_id: uuid.UUID
+    ) -> list[uuid.UUID]:
+        """Return subset of project_ids that actually belong to author."""

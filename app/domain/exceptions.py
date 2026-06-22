@@ -68,6 +68,17 @@ class PermissionError(DomainError):
     """The caller is not allowed to perform this action (→ HTTP 403)."""
 
 
+class BulkPermissionError(PermissionError):
+    """One or more project IDs in a bulk request don't belong to the caller (→ HTTP 403).
+
+    Carries the list of foreign IDs so the API can surface them in the error body.
+    """
+
+    def __init__(self, foreign_ids: list) -> None:
+        super().__init__("One or more projects do not belong to you")
+        self.foreign_ids = list(foreign_ids)
+
+
 class UnsupportedFileTypeError(DomainError):
     """The uploaded file's type is not on the whitelist (→ HTTP 415).
 
