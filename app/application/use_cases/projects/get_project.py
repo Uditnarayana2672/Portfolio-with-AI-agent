@@ -40,6 +40,7 @@ class GetProject:
             is_featured=project.is_featured,
             views=project.views,
             seo=project.seo,
+            meta=project.meta,
             blocks=[
                 BlockResult(
                     id=b.id,

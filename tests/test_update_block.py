@@ -41,7 +41,12 @@ UPDATED = datetime.datetime(2026, 6, 12, 10, 15, 0, tzinfo=datetime.timezone.utc
 URL = f"/api/v1/admin/projects/{PROJECT_ID}/blocks/{BLOCK_ID}"
 
 # A stored stats config as it would look after AddBlock's model_dump (normalized).
+# Includes the SectionHeaderMixin keys (eyebrow/heading/subheading) that every
+# section block now materializes on save.
 STORED_STATS_CONFIG = {
+    "eyebrow": None,
+    "heading": None,
+    "subheading": None,
     "metrics": [
         {"value": "99.9%", "label": "Uptime", "unit": None, "icon": None, "color": None},
         {"value": "12k", "label": "API calls/day", "unit": None, "icon": None, "color": None},

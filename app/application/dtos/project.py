@@ -49,6 +49,16 @@ SUPPORTED_BLOCK_TYPES: frozenset[str] = frozenset({
     "comparison",
     "cta",
     "form",
+    "embed",
+})
+
+# Public reaction types (mirrors the `reaction_type` enum on the reactions table).
+ALLOWED_REACTION_TYPES: frozenset[str] = frozenset({
+    "like",
+    "love",
+    "fire",
+    "clap",
+    "mind_blown",
 })
 
 MAX_POLL_OPTIONS = 6
@@ -81,6 +91,7 @@ class CreateProjectCommand:
     visibility: str = "public"
     is_featured: bool = False
     seo: SeoInput = field(default_factory=SeoInput)
+    meta: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -99,6 +110,7 @@ class CreateProjectResult:
     is_featured: bool
     views: int
     seo: dict
+    meta: dict
     author_id: uuid.UUID
     published_at: datetime.datetime | None
     created_at: datetime.datetime
@@ -173,6 +185,7 @@ class UpdateProjectResult:
     is_featured: bool
     views: int
     seo: dict
+    meta: dict
     blocks: list[BlockResult]
     author_id: uuid.UUID
     published_at: datetime.datetime | None
@@ -209,6 +222,7 @@ class GetProjectResult:
     is_featured: bool
     views: int
     seo: dict
+    meta: dict
     blocks: list[BlockResult]
     author_id: uuid.UUID
     published_at: datetime.datetime | None
@@ -321,6 +335,51 @@ ALLOWED_BULK_ACTIONS: frozenset[str] = frozenset({
     "unfeature",
     "delete",
 })
+
+
+@dataclass(frozen=True)
+class PublicProjectNeighbor:
+    """Minimal info for the prev/next-project footer links on the public page."""
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+
+
+@dataclass(frozen=True)
+class PublicProjectResult:
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+    tech_stack: list[str]
+    template_id: str
+    github_url: str | None
+    demo_url: str | None
+    views: int
+    seo: dict
+    meta: dict
+    blocks: list[BlockResult]
+    reactions: dict
+    published_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    prev_project: PublicProjectNeighbor | None
+    next_project: PublicProjectNeighbor | None
+
+
+@dataclass(frozen=True)
+class ReactToProjectCommand:
+    slug: str
+    reaction_type: str
+    session_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ReactToProjectResult:
+    slug: str
+    reactions: dict
 
 
 @dataclass

@@ -97,6 +97,7 @@ def create_project(
             og_image_url=body.seo.og_image_url,
             canonical_url=body.seo.canonical_url,
         ),
+        meta=dict(body.meta or {}),
     )
 
     try:
@@ -127,6 +128,7 @@ def create_project(
             og_image_url=result.seo.get("og_image_url"),
             canonical_url=result.seo.get("canonical_url"),
         ),
+        meta=result.meta,
         blocks=[],
         author_id=result.author_id,
         published_at=result.published_at,
@@ -376,6 +378,7 @@ def duplicate_project(
                 og_image_url=p.seo.get("og_image_url"),
                 canonical_url=p.seo.get("canonical_url"),
             ),
+            meta=p.meta,
             blocks=[
                 BlockResponse(
                     id=b.id,
@@ -707,6 +710,7 @@ def update_project(
             og_image_url=result.seo.get("og_image_url"),
             canonical_url=result.seo.get("canonical_url"),
         ),
+        meta=result.meta,
         blocks=[
             BlockResponse(
                 id=b.id,
@@ -969,6 +973,7 @@ def get_project(
             og_image_url=result.seo.get("og_image_url"),
             canonical_url=result.seo.get("canonical_url"),
         ),
+        meta=result.meta,
         blocks=[
             BlockResponse(
                 id=b.id,

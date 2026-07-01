@@ -60,6 +60,7 @@ class CreateProject:
             visibility=cmd.visibility,
             is_featured=cmd.is_featured,
             seo=self._seo_to_dict(cmd.seo),
+            meta=dict(cmd.meta or {}),
             author_id=cmd.author_id,
         )
 
@@ -89,6 +90,7 @@ class CreateProject:
             is_featured=project.is_featured,
             views=project.views,
             seo=project.seo,
+            meta=project.meta,
             author_id=project.author_id,
             published_at=project.published_at,
             created_at=project.created_at,

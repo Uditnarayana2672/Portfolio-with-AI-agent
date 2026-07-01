@@ -46,6 +46,7 @@ def _project(**overrides) -> Project:
         "is_featured": False,
         "views": 0,
         "seo": {},
+        "meta": {},
         "author_id": _AUTHOR,
         "published_at": None,
         "created_at": _now(),

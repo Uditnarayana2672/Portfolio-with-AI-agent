@@ -113,6 +113,14 @@ class UpdateProject:
                 raise ValidationError("tech_stack must be a list of strings.")
             changes["tech_stack"] = list(fields["tech_stack"])
 
+        if "meta" in fields:
+            # Shallow-merge like seo: unset keys in the request are left untouched,
+            # so the admin can patch a single header field without wiping the rest.
+            incoming_meta = fields["meta"] or {}
+            if not isinstance(incoming_meta, dict):
+                raise ValidationError("meta must be an object.")
+            changes["meta"] = {**project.meta, **incoming_meta}
+
         if "seo" in fields:
             merged_seo = {**project.seo, **fields["seo"]}
             changes["seo"] = merged_seo
@@ -166,6 +174,7 @@ class UpdateProject:
             is_featured=project.is_featured,
             views=project.views,
             seo=project.seo,
+            meta=project.meta,
             blocks=[
                 BlockResult(
                     id=b.id,

@@ -44,6 +44,14 @@ class CreateProjectRequest(BaseModel):
     )
     is_featured: bool = Field(False, description="Pin to the featured section.")
     seo: SeoRequest = Field(default_factory=SeoRequest, description="SEO / OG meta overrides.")
+    meta: dict = Field(
+        default_factory=dict,
+        description=(
+            "Editorial page-header metadata for the public detail page "
+            "(e.g. role, timeline_label, status_label, recognition, category, "
+            "hero_caption). Free-form JSON."
+        ),
+    )
 
     @field_validator("title")
     @classmethod
@@ -171,6 +179,7 @@ class UpdateProjectRequest(BaseModel):
     visibility: str | None = None
     is_featured: bool | None = None
     seo: SeoRequest | None = None
+    meta: dict | None = None
 
 
 class DuplicateProjectRequest(BaseModel):
@@ -242,6 +251,7 @@ class CreateProjectResponse(BaseModel):
     is_featured: bool
     views: int
     seo: SeoResponse
+    meta: dict
     blocks: list = Field(default_factory=list, description="Content blocks — always empty on create.")
     author_id: uuid.UUID
     published_at: datetime.datetime | None
@@ -274,6 +284,7 @@ class UpdateProjectResponse(BaseModel):
     is_featured: bool
     views: int
     seo: SeoResponse
+    meta: dict
     blocks: list[BlockResponse]
     author_id: uuid.UUID
     published_at: datetime.datetime | None
@@ -307,6 +318,7 @@ class GetProjectResponse(BaseModel):
     is_featured: bool
     views: int
     seo: SeoResponse
+    meta: dict
     blocks: list[BlockResponse]
     author_id: uuid.UUID
     published_at: datetime.datetime | None
@@ -382,6 +394,62 @@ class ProjectStatusCountsResponse(BaseModel):
     draft: int
     published: int
     archived: int
+
+
+class PublicProjectNeighborResponse(BaseModel):
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+
+
+class PublicProjectResponse(BaseModel):
+    """Public, unauthenticated view of a published project + its blocks."""
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+    tech_stack: list[str]
+    template_id: str
+    github_url: str | None
+    demo_url: str | None
+    views: int
+    seo: SeoResponse
+    meta: dict
+    blocks: list[BlockResponse]
+    reactions: dict
+    prev_project: PublicProjectNeighborResponse | None
+    next_project: PublicProjectNeighborResponse | None
+    published_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    @field_serializer("created_at", "updated_at")
+    def _serialize_dt(self, value: datetime.datetime) -> str:
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @field_serializer("published_at")
+    def _serialize_published_at(self, value: datetime.datetime | None) -> str | None:
+        if value is None:
+            return None
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class ReactToProjectRequest(BaseModel):
+    reaction_type: str = Field(
+        ...,
+        description="One of: like, love, fire, clap, mind_blown.",
+    )
+    session_id: str | None = Field(
+        None,
+        description="Opaque per-visitor id (used to attribute the reaction).",
+    )
+
+
+class ReactToProjectResponse(BaseModel):
+    slug: str
+    reactions: dict
 
 
 class BulkActionRequest(BaseModel):

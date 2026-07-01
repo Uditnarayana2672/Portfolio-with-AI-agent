@@ -70,6 +70,7 @@ def _fake_project(**overrides) -> Project:
         is_featured=False,
         views=0,
         seo={},
+        meta={},
         author_id=ADMIN_ID,
         published_at=None,
         created_at=NOW,

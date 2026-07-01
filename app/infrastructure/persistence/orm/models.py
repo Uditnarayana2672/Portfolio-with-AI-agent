@@ -607,6 +607,10 @@ class Projects(Base):
     is_featured: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
     views: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('0'))
     seo: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # Editorial page-header metadata for the public detail page (role,
+    # timeline_label, status_label, recognition, category/kicker, hero_caption…).
+    # Free-form JSON authored by the admin — see migration 003.
+    meta: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     author_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))

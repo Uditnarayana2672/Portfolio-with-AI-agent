@@ -41,6 +41,8 @@ from app.application.use_cases.projects.delete_block import DeleteBlock
 from app.application.use_cases.projects.delete_project import DeleteProject
 from app.application.interfaces.block_config_validator import BlockConfigValidator
 from app.application.use_cases.projects.get_project import GetProject
+from app.application.use_cases.projects.get_public_project import GetPublicProject
+from app.application.use_cases.projects.react_to_project import ReactToProject
 from app.application.use_cases.projects.get_status_counts import GetStatusCounts
 from app.application.use_cases.projects.toggle_feature import ToggleFeature
 from app.application.use_cases.projects.reorder_blocks import ReorderBlocks
@@ -235,6 +237,18 @@ def get_get_project(
     repo: ProjectRepository = Depends(get_project_repository),
 ) -> GetProject:
     return GetProject(repo=repo)
+
+
+def get_get_public_project(
+    repo: ProjectRepository = Depends(get_project_repository),
+) -> GetPublicProject:
+    return GetPublicProject(repo=repo)
+
+
+def get_react_to_project(
+    repo: ProjectRepository = Depends(get_project_repository),
+) -> ReactToProject:
+    return ReactToProject(repo=repo)
 
 
 def get_update_project(

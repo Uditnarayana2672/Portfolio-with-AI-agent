@@ -47,6 +47,8 @@ class DuplicateProject:
         seo = copy.deepcopy(src_project.seo)
         seo["canonical_url"] = None
 
+        meta = copy.deepcopy(src_project.meta)
+
         new = NewProject(
             title=new_title,
             slug=new_slug,
@@ -60,6 +62,7 @@ class DuplicateProject:
             visibility=src_project.visibility,
             is_featured=False,
             seo=seo,
+            meta=meta,
             author_id=cmd.author_id,
         )
 
@@ -113,6 +116,7 @@ class DuplicateProject:
                 is_featured=new_project.is_featured,
                 views=new_project.views,
                 seo=new_project.seo,
+                meta=new_project.meta,
                 blocks=copied_blocks,
                 author_id=new_project.author_id,
                 published_at=None,

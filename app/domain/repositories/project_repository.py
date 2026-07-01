@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.domain.entities.block import Block
 from app.domain.entities.project import Project
@@ -31,6 +31,7 @@ class NewProject:
     thumbnail_url: str | None = None
     github_url: str | None = None
     demo_url: str | None = None
+    meta: dict = field(default_factory=dict)
 
 
 class ProjectRepository(ABC):
@@ -46,6 +47,34 @@ class ProjectRepository(ABC):
     @abstractmethod
     def get_with_blocks(self, project_id: uuid.UUID) -> tuple[Project, list[Block]] | None:
         """Return (project, blocks ordered by position) or None if not found."""
+
+    @abstractmethod
+    def get_published_by_slug(self, slug: str) -> tuple[Project, list[Block]] | None:
+        """Return (project, blocks ordered by position) for a *published*,
+        publicly-visible project matching ``slug``, or None. Drafts, archived,
+        and members-only/private projects are treated as not found. Powers the
+        public project-detail page."""
+
+    @abstractmethod
+    def increment_views(self, project_id: uuid.UUID) -> int:
+        """Atomically bump the project's view counter by one and return the new
+        total. Used on each public detail-page load."""
+
+    @abstractmethod
+    def list_published_brief(self) -> list[Project]:
+        """Return all published, publicly-visible projects ordered by
+        ``published_at`` descending (newest first). Used to compute the
+        prev/next-project footer links on the public detail page."""
+
+    @abstractmethod
+    def get_reaction_counts(self, project_id: uuid.UUID) -> dict[str, int]:
+        """Return per-reaction-type counts for a project as {reaction_type: count}."""
+
+    @abstractmethod
+    def add_reaction(
+        self, project_id: uuid.UUID, reaction_type: str, session_id: str | None
+    ) -> dict[str, int]:
+        """Record a public reaction on a project and return the updated counts."""
 
     @abstractmethod
     def slug_exists_excluding(self, slug: str, exclude_id: uuid.UUID) -> bool:

@@ -16,6 +16,7 @@ from app.infrastructure.persistence.orm.models import (
     ProjectBlocks,
     ProjectStatus,
     Projects,
+    ReactionType,
     Reactions,
 )
 
@@ -48,6 +49,7 @@ class SqlAlchemyProjectRepository(ProjectRepository):
             visibility=ContentVisibility(new.visibility),
             is_featured=new.is_featured,
             seo=new.seo,
+            meta=new.meta,
             author_id=new.author_id,
         )
         self._db.add(row)
@@ -71,6 +73,77 @@ class SqlAlchemyProjectRepository(ProjectRepository):
             return None
         blocks = sorted(row.project_blocks, key=lambda b: b.position)
         return self._to_entity(row), [self._block_to_entity(b) for b in blocks]
+
+    def get_published_by_slug(self, slug: str) -> tuple[Project, list[Block]] | None:
+        row = (
+            self._db.execute(
+                select(Projects)
+                .where(
+                    Projects.slug == slug,
+                    Projects.status == ProjectStatus.PUBLISHED,
+                    Projects.visibility.in_(
+                        [ContentVisibility.PUBLIC, ContentVisibility.UNLISTED]
+                    ),
+                )
+                .options(selectinload(Projects.project_blocks))
+            )
+            .scalars()
+            .first()
+        )
+        if row is None:
+            return None
+        blocks = sorted(row.project_blocks, key=lambda b: b.position)
+        return self._to_entity(row), [self._block_to_entity(b) for b in blocks]
+
+    def increment_views(self, project_id: uuid.UUID) -> int:
+        new_total = self._db.scalar(
+            sa_update(Projects)
+            .where(Projects.id == project_id)
+            .values(views=Projects.views + 1)
+            .returning(Projects.views)
+        )
+        self._db.flush()
+        return new_total or 0
+
+    def list_published_brief(self) -> list[Project]:
+        rows = (
+            self._db.execute(
+                select(Projects)
+                .where(
+                    Projects.status == ProjectStatus.PUBLISHED,
+                    Projects.visibility == ContentVisibility.PUBLIC,
+                )
+                .order_by(desc(Projects.published_at))
+            )
+            .scalars()
+            .all()
+        )
+        return [self._to_entity(row) for row in rows]
+
+    def get_reaction_counts(self, project_id: uuid.UUID) -> dict[str, int]:
+        rows = self._db.execute(
+            select(Reactions.reaction_type, func.count().label("cnt"))
+            .where(
+                Reactions.content_type == ContentType.PROJECT,
+                Reactions.content_id == project_id,
+            )
+            .group_by(Reactions.reaction_type)
+        ).all()
+        return {row.reaction_type.value: row.cnt for row in rows}
+
+    def add_reaction(
+        self, project_id: uuid.UUID, reaction_type: str, session_id: str | None
+    ) -> dict[str, int]:
+        self._db.add(
+            Reactions(
+                content_type=ContentType.PROJECT,
+                content_id=project_id,
+                reaction_type=ReactionType(reaction_type),
+                session_id=session_id,
+            )
+        )
+        self._db.flush()
+        return self.get_reaction_counts(project_id)
 
     def delete(self, project_id: uuid.UUID) -> None:
         # The project_blocks FK has no ON DELETE CASCADE (see 001_initial_schema),
@@ -307,6 +380,7 @@ class SqlAlchemyProjectRepository(ProjectRepository):
             is_featured=row.is_featured,
             views=row.views,
             seo=dict(row.seo or {}),
+            meta=dict(row.meta or {}),
             author_id=row.author_id,
             published_at=row.published_at,
             created_at=row.created_at,
