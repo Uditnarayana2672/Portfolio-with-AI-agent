@@ -45,6 +45,7 @@ ALLOWED_FOLDERS = (
     "projects/videos",
     "blog/covers",
     "blog/inline",
+    "blog/videos",
     "system/og-images",
     "system/avatars",
     "uncategorized",

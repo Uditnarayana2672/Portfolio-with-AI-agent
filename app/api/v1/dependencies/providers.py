@@ -19,7 +19,34 @@ from __future__ import annotations
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
+from app.application.dtos.blog import BlogSettings
 from app.application.interfaces.image_storage import ImageStorage
+from app.application.use_cases.blog.editor_support import GetEditorConfig, ResolveEmbed, SearchLinkTargets
+from app.application.use_cases.blog.post_workflow import BlogPostWorkflow
+from app.application.use_cases.blog.posts import (
+    CheckBlogSlug,
+    CreateBlogPost,
+    DeleteBlogPost,
+    GetBlogPost,
+    UpdateBlogPost,
+)
+from app.application.use_cases.blog.preview import GetBlogPreview
+from app.application.use_cases.blog.publishing import (
+    DiscardBlogChanges,
+    GetBlogChecklist,
+    PublishBlogPost,
+    PublishDuePosts,
+    ScheduleBlogPost,
+    UnpublishBlogPost,
+    UnscheduleBlogPost,
+)
+from app.application.use_cases.blog.revisions import (
+    CreateBlogRevision,
+    GetBlogRevision,
+    ListBlogRevisions,
+    RestoreBlogRevision,
+)
+from app.application.use_cases.blog.taxonomy import CreateBlogCategory, ListBlogCategories, ListBlogTags
 from app.application.interfaces.url_fetcher import UrlFetcher
 from app.application.interfaces.video_metadata import VideoMetadataProvider
 from app.application.use_cases.media.bulk_delete_media import BulkDeleteMedia
@@ -53,6 +80,8 @@ from app.application.use_cases.projects.publish_project import PublishProject
 from app.application.use_cases.projects.update_project import UpdateProject
 from app.api.v1.schemas.block_config import PydanticBlockConfigValidator
 from app.domain.repositories.activity_log_repository import ActivityLogRepository
+from app.domain.repositories.blog_category_repository import BlogCategoryRepository
+from app.domain.repositories.blog_post_repository import BlogPostRepository
 from app.domain.repositories.block_repository import BlockRepository
 from app.domain.repositories.form_repository import FormRepository
 from app.domain.repositories.media_asset_repository import MediaAssetRepository
@@ -61,13 +90,20 @@ from app.infrastructure.config import settings
 from app.infrastructure.external.cloudinary_storage import CloudinaryImageStorage
 from app.infrastructure.external.safe_url_fetcher import SafeHttpUrlFetcher
 from app.infrastructure.external.youtube_metadata import YouTubeMetadataProvider
-from app.infrastructure.persistence.database import get_db
+from app.infrastructure.persistence.database import SessionLocal, get_db
 from app.infrastructure.persistence.repositories.activity_log_repository import (
     SqlAlchemyActivityLogRepository,
 )
 from app.infrastructure.persistence.repositories.media_asset_repository import (
     SqlAlchemyMediaAssetRepository,
 )
+from app.infrastructure.persistence.repositories.blog_category_repository import (
+    SqlAlchemyBlogCategoryRepository,
+)
+from app.infrastructure.persistence.repositories.blog_post_repository import (
+    SqlAlchemyBlogPostRepository,
+)
+from app.infrastructure.rendering.tiptap_renderer import TipTapHtmlRenderer
 from app.infrastructure.persistence.repositories.block_repository import (
     SqlAlchemyBlockRepository,
 )
@@ -338,3 +374,152 @@ def get_bulk_action(
     repo: ProjectRepository = Depends(get_project_repository),
 ) -> BulkAction:
     return BulkAction(repo=repo)
+
+
+# ── Blog editor ──────────────────────────────────────────────────────────────
+
+
+def get_blog_settings() -> BlogSettings:
+    return BlogSettings(site_url=settings.SITE_URL, timezone=settings.ADMIN_TIMEZONE)
+
+
+def get_blog_post_repository(db: Session = Depends(get_db)) -> BlogPostRepository:
+    return SqlAlchemyBlogPostRepository(db)
+
+
+def get_blog_category_repository(db: Session = Depends(get_db)) -> BlogCategoryRepository:
+    return SqlAlchemyBlogCategoryRepository(db)
+
+
+def get_blog_workflow(
+    repo: BlogPostRepository = Depends(get_blog_post_repository),
+    categories: BlogCategoryRepository = Depends(get_blog_category_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+    blog_settings: BlogSettings = Depends(get_blog_settings),
+) -> BlogPostWorkflow:
+    return BlogPostWorkflow(
+        repo=repo,
+        categories=categories,
+        renderer=TipTapHtmlRenderer(),
+        activity=activity,
+        settings=blog_settings,
+    )
+
+
+def get_editor_config(blog_settings: BlogSettings = Depends(get_blog_settings)) -> GetEditorConfig:
+    return GetEditorConfig(blog_settings)
+
+
+def get_create_blog_post(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> CreateBlogPost:
+    return CreateBlogPost(wf)
+
+
+def get_get_blog_post(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> GetBlogPost:
+    return GetBlogPost(wf)
+
+
+def get_update_blog_post(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> UpdateBlogPost:
+    return UpdateBlogPost(wf)
+
+
+def get_delete_blog_post(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> DeleteBlogPost:
+    return DeleteBlogPost(wf)
+
+
+def get_check_blog_slug(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> CheckBlogSlug:
+    return CheckBlogSlug(wf)
+
+
+def get_blog_checklist(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> GetBlogChecklist:
+    return GetBlogChecklist(wf)
+
+
+def get_publish_blog_post(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> PublishBlogPost:
+    return PublishBlogPost(wf)
+
+
+def get_schedule_blog_post(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> ScheduleBlogPost:
+    return ScheduleBlogPost(wf)
+
+
+def get_unschedule_blog_post(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> UnscheduleBlogPost:
+    return UnscheduleBlogPost(wf)
+
+
+def get_unpublish_blog_post(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> UnpublishBlogPost:
+    return UnpublishBlogPost(wf)
+
+
+def get_discard_blog_changes(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> DiscardBlogChanges:
+    return DiscardBlogChanges(wf)
+
+
+def get_blog_preview(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> GetBlogPreview:
+    return GetBlogPreview(wf)
+
+
+def get_create_blog_revision(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> CreateBlogRevision:
+    return CreateBlogRevision(wf)
+
+
+def get_list_blog_revisions(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> ListBlogRevisions:
+    return ListBlogRevisions(wf)
+
+
+def get_get_blog_revision(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> GetBlogRevision:
+    return GetBlogRevision(wf)
+
+
+def get_restore_blog_revision(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> RestoreBlogRevision:
+    return RestoreBlogRevision(wf)
+
+
+def get_list_blog_categories(
+    repo: BlogCategoryRepository = Depends(get_blog_category_repository),
+) -> ListBlogCategories:
+    return ListBlogCategories(repo)
+
+
+def get_create_blog_category(
+    repo: BlogCategoryRepository = Depends(get_blog_category_repository),
+) -> CreateBlogCategory:
+    return CreateBlogCategory(repo)
+
+
+def get_list_blog_tags(repo: BlogPostRepository = Depends(get_blog_post_repository)) -> ListBlogTags:
+    return ListBlogTags(repo)
+
+
+def get_resolve_embed() -> ResolveEmbed:
+    return ResolveEmbed()
+
+
+def get_search_link_targets(
+    repo: BlogPostRepository = Depends(get_blog_post_repository),
+) -> SearchLinkTargets:
+    return SearchLinkTargets(repo)
+
+
+def get_publish_due_posts(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> PublishDuePosts:
+    return PublishDuePosts(wf)
+
+
+def run_publish_due_posts() -> None:
+    """One scheduler tick outside a request: own session, commit on success.
+    Wired into the in-process scheduler by app/main.py."""
+    db = SessionLocal()
+    try:
+        workflow = BlogPostWorkflow(
+            repo=SqlAlchemyBlogPostRepository(db),
+            categories=SqlAlchemyBlogCategoryRepository(db),
+            renderer=TipTapHtmlRenderer(),
+            activity=SqlAlchemyActivityLogRepository(db),
+            settings=get_blog_settings(),
+        )
+        PublishDuePosts(workflow).execute()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()

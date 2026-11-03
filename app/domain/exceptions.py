@@ -182,3 +182,68 @@ class ResourceTypeMismatchError(DomainError):
         self.declared = declared
         self.inferred = inferred
         self.ext = ext
+
+
+# ── Blog editor ──────────────────────────────────────────────────────────────
+
+
+class BlogRuleError(ValidationError):
+    """A blog post write breaks a rule (→ HTTP 422 with ``code``).
+
+    ``code`` is the machine-readable error from the API spec (e.g.
+    ``INVALID_CONTENT``, ``SCHEDULE_TOO_SOON``); ``detail`` carries context such
+    as the JSON path of the offending node.
+    """
+
+    def __init__(self, code: str, message: str, detail: dict | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.detail = detail or {}
+
+
+class ContentTooLargeError(BlogRuleError):
+    """The serialized post body exceeds the size cap (→ HTTP 413)."""
+
+    def __init__(self, max_bytes: int) -> None:
+        super().__init__(
+            "CONTENT_TOO_LARGE",
+            "This post is too large — split it into a series.",
+            {"max_bytes": max_bytes},
+        )
+
+
+class ChecklistFailedError(ValidationError):
+    """Publishing or scheduling was refused because a checklist blocker failed
+    (→ HTTP 422 CHECKLIST_FAILED). Carries the full checklist."""
+
+    def __init__(self, checklist) -> None:
+        super().__init__("Fix the blockers in the checklist before publishing.")
+        self.checklist = checklist
+
+
+class InvalidStateError(ConflictError):
+    """The post is in the wrong state for this action (→ HTTP 409 with ``code``,
+    e.g. NOT_PUBLISHED, ALREADY_PUBLISHED, NO_CHANGES)."""
+
+    def __init__(self, code: str, message: str, detail: dict | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.detail = detail or {}
+
+
+class VersionConflictError(ConflictError):
+    """The client's ``version`` is stale — the post changed elsewhere
+    (→ HTTP 409 VERSION_CONFLICT)."""
+
+    def __init__(self, current_version: int, updated_at) -> None:
+        super().__init__("Post was changed in another tab.")
+        self.current_version = current_version
+        self.updated_at = updated_at
+
+
+class BlogNotFoundError(NotFoundError):
+    """A blog post, revision or category is missing (→ HTTP 404 with ``code``)."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code

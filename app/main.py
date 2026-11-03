@@ -10,19 +10,38 @@ the HTTP edge — routers, CORS, health check — and delegates everything else
 inward through app/api/v1.
 """
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.v1.dependencies.providers import run_publish_due_posts
 from app.api.v1.router import api_router
 from app.infrastructure.config import settings
+from app.infrastructure.scheduling.interval_runner import IntervalRunner
 
 logger = logging.getLogger("app")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Start the scheduled-post publisher with the server, stop it on exit."""
+    runner = None
+    if settings.BLOG_SCHEDULER_ENABLED:
+        runner = IntervalRunner(
+            "blog-publish-due", settings.BLOG_SCHEDULER_INTERVAL_SECONDS, run_publish_due_posts
+        )
+        runner.start()
+    yield
+    if runner is not None:
+        runner.stop()
+
 
 app = FastAPI(
     title="Portfolio API",
     debug=settings.DEBUG,
+    lifespan=lifespan,
 )
 
 # Dev: wildcard origins so any localhost port works regardless of which URL

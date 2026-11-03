@@ -18,6 +18,7 @@ from app.domain.repositories.media_asset_repository import (
     NewMediaAsset,
 )
 from app.infrastructure.persistence.orm.models import (
+    BlogPostRevisions,
     BlogPosts,
     MediaAssets,
     ProjectBlocks,
@@ -188,6 +189,19 @@ class SqlAlchemyMediaAssetRepository(MediaAssetRepository):
             refs.append(
                 MediaUsageRef(kind="blog", entity_id=bid, title=title, location="content")
             )
+
+        # 6) live blog revisions — an asset removed from the working copy is
+        #    still on the public page until the next Update.
+        in_working_copy = {r.entity_id for r in refs if r.kind == "blog"}
+        for bid, title in self._db.execute(
+            select(BlogPosts.id, BlogPosts.title)
+            .join(BlogPostRevisions, BlogPostRevisions.id == BlogPosts.published_revision_id)
+            .where(func.strpos(cast(BlogPostRevisions.snapshot, Text), public_id) > 0)
+        ).all():
+            if bid not in in_working_copy:
+                refs.append(
+                    MediaUsageRef(kind="blog", entity_id=bid, title=title, location="live revision")
+                )
 
         return refs
 

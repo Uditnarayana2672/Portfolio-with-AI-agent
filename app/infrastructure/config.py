@@ -53,6 +53,17 @@ class Settings(BaseSettings):
     # thumbnail work without it (via oEmbed).
     YOUTUBE_API_KEY: str = ""
 
+    # ── Blog editor ──────────────────────────────────────────────────────────
+    # Public site origin, used for canonical URLs, OG tags and previews.
+    SITE_URL: str = "https://uditnarayana.dev"
+    ADMIN_TIMEZONE: str = "Asia/Kolkata"
+    # Shared secret for POST /api/v1/internal/blogs/publish-due (external cron).
+    # Empty disables that endpoint; the in-process scheduler still runs.
+    BLOG_CRON_SECRET: str = ""
+    # In-process scheduler that publishes due scheduled posts every interval.
+    BLOG_SCHEDULER_ENABLED: bool = True
+    BLOG_SCHEDULER_INTERVAL_SECONDS: int = 60
+
     # ── CORS ─────────────────────────────────────────────────────────────────
     # Space-separated list of allowed origins. Covers both `localhost` and
     # `127.0.0.1` because browsers send whichever variant you typed in the bar

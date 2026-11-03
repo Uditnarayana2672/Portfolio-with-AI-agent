@@ -1,1 +1,13 @@
 step 1: import sqlalchemy
+  done 0.06s
+step 2: import sessionmaker
+  done 0.09s
+step 3: import settings
+  done 0.14s
+step 4: create Base
+  done 0.14s
+step 5: create_engine (WITHOUT connect_args)
+  done 0.16s
+step 6: sessionmaker
+  done 0.16s
+ALL STEPS DONE - database.py would complete normally
