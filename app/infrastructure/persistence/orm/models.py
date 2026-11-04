@@ -457,6 +457,10 @@ class BlogPosts(Base):
     published_revision_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     last_published_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
     schedule_error: Mapped[Optional[str]] = mapped_column(Text)
+    # ── blog manager (migration 006_blog_manager) ──
+    # search_vector (generated tsvector) is deliberately not mapped: it is never
+    # written, and only the list query reads it.
+    archived_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
 
     author: Mapped['Users'] = relationship('Users', back_populates='blog_posts')
     category: Mapped[Optional['BlogCategories']] = relationship('BlogCategories', back_populates='blog_posts')

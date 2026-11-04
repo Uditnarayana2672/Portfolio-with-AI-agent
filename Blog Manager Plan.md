@@ -352,3 +352,20 @@ Steps 5–6 don't depend on 1–4 and can go first if you want the editor fixes 
 3. **Category pills are single-select.** Should categories be multi-select like statuses?
 4. **Default size for new images:** medium (560 px) is proposed. Should screenshots default to "small"?
 5. **The 500:** which action triggers it? (Paste the traceback or the failing request.)
+
+---
+
+## 13. Implementation notes (as built, Nov 4, 2026)
+
+Where the code differs from the sections above:
+
+| Topic | As built |
+| --- | --- |
+| List queries | A separate read-side port, `BlogListRepository` (`app/domain/repositories/blog_list_repository.py`, SQL in `…/repositories/blog_list_repository.py`), instead of new abstract methods on `BlogPostRepository`. This keeps the editor's contract (and its test fakes) unchanged. Archive, delete and restore go through `BlogPostWorkflow` and the existing repository. |
+| Bulk savepoints | Not used. Every rule for a post is checked before anything is written for it, so a refused post leaves no partial change. Rows are locked in id order. An unexpected DB error still fails the whole request (rolled back). |
+| Delete | `SqlAlchemyBlogPostRepository.delete()` also removes the post's `reactions` and `comments` explicitly, so it works before and after migration 006. |
+| Media sizes | Schema default stays `normal` (existing posts unchanged); the editor inserts `medium`. The renderer wraps images in `.bp-image__frame`, sets an inline `max-width` (size cap, never above the file's width), a per-size `sizes` hint and `data-zoom-src`. Videos get `size` too (`small \| medium \| normal`). |
+| Zoom | `setupImageZoom` in `src/lib/blogArticleBehaviour.ts`, wired by `enhanceArticle`. Images inside a link are skipped (the link keeps its click). |
+| 500 hardening | `domain_errors()` maps `IntegrityError` → 409 `CONFLICT` with the constraint name. `_json_default` stringifies unknown types instead of raising. The global handler returns a `request_id` (also in `X-Request-Id`) and errors are logged to `logs/api.log` (rotating, git-ignored). The original 500 is still unidentified (§9). |
+| Frontend structure | One page file (`BlogManagerPage.tsx`, same pattern as `ProjectManagerPage.tsx`) plus `src/lib/blogManagerFilters.ts` for URL state and pill logic, instead of the component split in §5.1. |
+| Archived posts in the editor | Banner with **↺ Restore to drafts**; the editor area is `inert` (read-only) while archived. |

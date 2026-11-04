@@ -279,7 +279,9 @@ NODE_SPECS: dict[str, NodeSpec] = {
         "caption": _str(300),
         "width": _int(1, 20000),
         "height": _int(1, 20000),
-        "size": _enum({"normal", "wide", "full"}, "normal"),
+        # small/medium added for the Blog Manager build; "normal" stays the
+        # default so existing posts render unchanged (the editor inserts medium).
+        "size": _enum({"small", "medium", "normal", "wide", "full"}, "normal"),
         "link_href": _optional_href,
     }),
     "imageGallery": NodeSpec({
@@ -298,6 +300,7 @@ NODE_SPECS: dict[str, NodeSpec] = {
         "duration_seconds": _int(0, 86_400),
         "caption": _str(300),
         "start_seconds": _int(0, 86_400),
+        "size": _enum({"small", "medium", "normal"}, "normal"),
     }),
     "embed": NodeSpec({
         "provider": _str(30),

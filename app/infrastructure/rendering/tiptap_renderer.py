@@ -27,6 +27,16 @@ _LANG_LABELS = dict(CODE_LANGUAGES)
 _CALLOUT_ICONS = {v: icon for v, _label, icon in CALLOUT_VARIANTS}
 _IMAGE_WIDTHS = (640, 960, 1280, 1920)
 _IMAGE_SIZES = "(max-width: 760px) 100vw, 760px"
+# Display caps in px for each media size; None = the size's layout width
+# (column, wide or full bleed). Never larger than the file itself.
+_MEDIA_MAX_PX = {"small": 360, "medium": 560, "normal": 760}
+_IMAGE_SIZE_HINTS = {
+    "small": "(max-width: 400px) 100vw, 360px",
+    "medium": "(max-width: 600px) 100vw, 560px",
+    "wide": "(max-width: 880px) 100vw, 880px",
+    "full": "100vw",
+}
+_ZOOM_TRANSFORM = "f_auto,q_auto,w_2000,c_limit"
 _GALLERY_HEIGHTS = {"sm": 240, "md": 360, "lg": 480}
 _WORD = re.compile(r"[\w'’-]+", re.UNICODE)
 
@@ -213,23 +223,38 @@ class TipTapHtmlRenderer(BlogContentRenderer):
             cells.append(f"<{tag}{extra}>{self._children(cell, st)}</{tag}>")
         return f"<tr>{''.join(cells)}</tr>"
 
-    def _img(self, src: str, alt: str, width, height, *, sizes: str = _IMAGE_SIZES, cls: str = "") -> str:
+    def _img(self, src: str, alt: str, width, height, *, sizes: str = _IMAGE_SIZES, cls: str = "",
+             extra: str = "") -> str:
         srcset = ", ".join(f"{_a(_cld(src, f'f_auto,q_auto,w_{w}'))} {w}w" for w in _IMAGE_WIDTHS)
         dims = f' width="{int(width)}" height="{int(height)}"' if width and height else ""
         cls_attr = f' class="{cls}"' if cls else ""
         return (f'<img{cls_attr} src="{_a(_cld(src, "f_auto,q_auto,w_1280"))}" srcset="{srcset}" '
-                f'sizes="{_a(sizes)}" alt="{_a(alt or "")}"{dims} loading="lazy" decoding="async">')
+                f'sizes="{_a(sizes)}" alt="{_a(alt or "")}"{dims}{extra} loading="lazy" decoding="async">')
+
+    @staticmethod
+    def _max_width_style(size: str, natural_width) -> str:
+        """Inline max-width for a figure: the size's cap, but never wider than
+        the file (a 300 px screenshot is never stretched)."""
+        caps = [c for c in (_MEDIA_MAX_PX.get(size), natural_width if size in _MEDIA_MAX_PX else None) if c]
+        return f' style="max-width:{int(min(caps))}px"' if caps else ""
 
     def _n_image(self, node, attrs, st):
         st.image_count += 1
-        img = self._img(attrs["src"], attrs.get("alt") or "", attrs.get("width"), attrs.get("height"))
+        size = attrs.get("size", "normal")
+        img = self._img(
+            attrs["src"], attrs.get("alt") or "", attrs.get("width"), attrs.get("height"),
+            sizes=_IMAGE_SIZE_HINTS.get(size, _IMAGE_SIZES),
+            extra=f' data-zoom-src="{_a(_cld(attrs["src"], _ZOOM_TRANSFORM))}"',
+        )
         if attrs.get("link_href"):
             img = f'<a href="{_a(attrs["link_href"])}">{img}</a>'
         caption = ""
         if attrs.get("caption"):
             st.text_parts.append(attrs["caption"])
             caption = f"<figcaption>{escape(attrs['caption'])}</figcaption>"
-        return f'<figure class="bp-image bp-image--{_a(attrs.get("size", "normal"))}">{img}{caption}</figure>'
+        style = self._max_width_style(size, attrs.get("width"))
+        return (f'<figure class="bp-image bp-image--{_a(size)}"{style}>'
+                f'<div class="bp-image__frame">{img}</div>{caption}</figure>')
 
     def _n_imageGallery(self, node, attrs, st):
         height = _GALLERY_HEIGHTS.get(attrs.get("height", "md"), 360)
@@ -263,6 +288,9 @@ class TipTapHtmlRenderer(BlogContentRenderer):
             st.text_parts.append(attrs["caption"])
             caption = f"<figcaption>{escape(attrs['caption'])}</figcaption>"
         title = attrs.get("title") or "Video"
+        size = attrs.get("size", "normal")
+        cls = f"bp-video bp-video--{_a(size)}"
+        style = self._max_width_style(size, None)
         if attrs.get("source") == "youtube":
             vid = attrs["external_id"]
             start = attrs.get("start_seconds") or 0
@@ -270,7 +298,7 @@ class TipTapHtmlRenderer(BlogContentRenderer):
             watch = f"https://www.youtube.com/watch?v={vid}" + (f"&t={int(start)}s" if start else "")
             poster = attrs.get("poster_url") or f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
             return (
-                f'<figure class="bp-video bp-video--youtube">'
+                f'<figure class="{cls} bp-video--youtube"{style}>'
                 f'<div class="bp-video__frame" data-youtube="{_a(embed)}" data-title="{_a(title)}">'
                 f'<button type="button" class="bp-video__play" aria-label="Play video: {_a(title)}">'
                 f'<img src="{_a(poster)}" alt="" loading="lazy"><span class="bp-video__icon" aria-hidden="true">▶</span>'
@@ -280,7 +308,7 @@ class TipTapHtmlRenderer(BlogContentRenderer):
             )
         poster = f' poster="{_a(attrs["poster_url"])}"' if attrs.get("poster_url") else ""
         return (
-            f'<figure class="bp-video"><video controls preload="metadata" playsinline{poster} '
+            f'<figure class="{cls}"{style}><video controls preload="metadata" playsinline{poster} '
             f'src="{_a(attrs["src"])}" title="{_a(title)}"></video>{caption}</figure>'
         )
 

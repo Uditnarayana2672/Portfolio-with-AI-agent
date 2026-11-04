@@ -22,9 +22,12 @@ from app.infrastructure.persistence.orm.models import (
     BlogPosts,
     BlogSlugRedirects,
     BlogStatus,
+    Comments,
+    ContentType,
     ContentVisibility,
     MediaAssets,
     Projects,
+    Reactions,
     Users,
 )
 
@@ -70,6 +73,13 @@ class SqlAlchemyBlogPostRepository(BlogPostRepository):
         return self._to_entity(row)
 
     def delete(self, post_id: uuid.UUID) -> None:
+        # Reactions are polymorphic (no FK), so nothing cascades to them.
+        # Comments are deleted explicitly too, so this works before and after
+        # migration 006 adds ON DELETE CASCADE.
+        self._db.execute(sa_delete(Reactions).where(
+            Reactions.content_type == ContentType.BLOG_POST, Reactions.content_id == post_id
+        ))
+        self._db.execute(sa_delete(Comments).where(Comments.blog_id == post_id))
         self._db.execute(sa_delete(BlogPosts).where(BlogPosts.id == post_id))
         self._db.flush()
 
@@ -297,5 +307,6 @@ class SqlAlchemyBlogPostRepository(BlogPostRepository):
             schedule_error=row.schedule_error,
             created_at=row.created_at,
             updated_at=row.updated_at,
+            archived_at=row.archived_at,
         )
 

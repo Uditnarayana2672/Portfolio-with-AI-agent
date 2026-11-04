@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.application.dtos.blog import BlogSettings
 from app.application.interfaces.image_storage import ImageStorage
 from app.application.use_cases.blog.editor_support import GetEditorConfig, ResolveEmbed, SearchLinkTargets
+from app.application.use_cases.blog.manager import BulkBlogAction, GetBlogStats, ListBlogPosts, UnarchiveBlogPost
 from app.application.use_cases.blog.post_workflow import BlogPostWorkflow
 from app.application.use_cases.blog.posts import (
     CheckBlogSlug,
@@ -81,6 +82,7 @@ from app.application.use_cases.projects.update_project import UpdateProject
 from app.api.v1.schemas.block_config import PydanticBlockConfigValidator
 from app.domain.repositories.activity_log_repository import ActivityLogRepository
 from app.domain.repositories.blog_category_repository import BlogCategoryRepository
+from app.domain.repositories.blog_list_repository import BlogListRepository
 from app.domain.repositories.blog_post_repository import BlogPostRepository
 from app.domain.repositories.block_repository import BlockRepository
 from app.domain.repositories.form_repository import FormRepository
@@ -100,6 +102,7 @@ from app.infrastructure.persistence.repositories.media_asset_repository import (
 from app.infrastructure.persistence.repositories.blog_category_repository import (
     SqlAlchemyBlogCategoryRepository,
 )
+from app.infrastructure.persistence.repositories.blog_list_repository import SqlAlchemyBlogListRepository
 from app.infrastructure.persistence.repositories.blog_post_repository import (
     SqlAlchemyBlogPostRepository,
 )
@@ -502,6 +505,32 @@ def get_search_link_targets(
 
 def get_publish_due_posts(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> PublishDuePosts:
     return PublishDuePosts(wf)
+
+
+# ── Blog Manager ─────────────────────────────────────────────────────────────
+
+
+def get_blog_list_repository(db: Session = Depends(get_db)) -> BlogListRepository:
+    return SqlAlchemyBlogListRepository(db)
+
+
+def get_list_blog_posts(repo: BlogListRepository = Depends(get_blog_list_repository)) -> ListBlogPosts:
+    return ListBlogPosts(repo)
+
+
+def get_blog_stats(
+    repo: BlogListRepository = Depends(get_blog_list_repository),
+    blog_settings: BlogSettings = Depends(get_blog_settings),
+) -> GetBlogStats:
+    return GetBlogStats(repo, blog_settings)
+
+
+def get_bulk_blog_action(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> BulkBlogAction:
+    return BulkBlogAction(wf)
+
+
+def get_unarchive_blog_post(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> UnarchiveBlogPost:
+    return UnarchiveBlogPost(wf)
 
 
 def run_publish_due_posts() -> None:

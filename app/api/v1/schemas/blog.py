@@ -321,3 +321,100 @@ class DueRunResponse(_Out):
     checked_at: UtcDatetime
     published: list[dict[str, Any]]
     failed: list[dict[str, Any]]
+
+
+# ── Blog Manager ("Blog Manager API.md") ─────────────────────────────────────
+
+
+class BulkItem(BaseModel):
+    id: uuid.UUID
+    version: int = Field(..., ge=1)
+
+
+class BulkRequest(BaseModel):
+    # Allowed actions and the item cap are checked by the use case so the
+    # client gets the standard VALIDATION_ERROR envelope.
+    action: str
+    items: list[BulkItem]
+
+
+class ListCategoryRef(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str | None
+
+
+class ListCoverRef(BaseModel):
+    id: uuid.UUID
+    thumb_url: str
+    alt: str
+
+
+class ListAuthorRef(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
+class ListSearchMatch(BaseModel):
+    rank: float
+    matched: list[str]
+    snippet: str | None
+
+
+class PostListItemResponse(_Out):
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    status: str
+    has_unpublished_changes: bool
+    category: ListCategoryRef | None
+    tags: list[str]
+    cover: ListCoverRef | None
+    read_time: int | None
+    word_count: int
+    views: int
+    author: ListAuthorRef | None
+    version: int
+    scheduled_at: UtcDatetime | None
+    schedule_error: str | None
+    published_at: UtcDatetime | None
+    archived_at: UtcDatetime | None
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
+    search: ListSearchMatch | None
+
+
+class PostListResponse(_Out):
+    items: list[PostListItemResponse]
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+    facets: dict[str, dict[str, int]]
+    applied: dict[str, Any]
+
+
+class BlogStatsResponse(_Out):
+    total: int
+    published: int
+    draft: int
+    scheduled: int
+    archived: int
+    created_this_month: int
+    next_scheduled_at: UtcDatetime | None
+    failed_schedules: int
+
+
+class BulkFailureResponse(_Out):
+    id: uuid.UUID
+    error: str
+    message: str
+    current_version: int | None = None
+
+
+class BulkResultResponse(_Out):
+    action: str
+    requested: int
+    succeeded: list[uuid.UUID]
+    failed: list[BulkFailureResponse]

@@ -45,6 +45,76 @@ class BlogPost:
     schedule_error: str | None
     created_at: datetime.datetime
     updated_at: datetime.datetime
+    archived_at: datetime.datetime | None = None
+
+
+@dataclass(frozen=True)
+class PostListQuery:
+    """Filters, search and paging for the Blog Manager list.
+
+    ``statuses`` None means "All" (every status except archived). ``category``
+    is a category id, the string ``"none"`` (uncategorized) or None (all).
+    """
+
+    author_id: uuid.UUID
+    statuses: tuple[str, ...] | None = None
+    category: uuid.UUID | str | None = None
+    search: "SearchTerms | None" = None
+    sort: str = "updated_at"
+    descending: bool = True
+    page: int = 1
+    limit: int = 20
+
+
+@dataclass(frozen=True)
+class SearchTerms:
+    """A sanitized search: the raw text plus the words it splits into."""
+
+    text: str                # trimmed user text (bound as a parameter, never formatted)
+    words: tuple[str, ...]   # lowercase [a-z0-9]+ tokens, at least one
+
+
+@dataclass(frozen=True)
+class PostListRow:
+    """One Blog Manager row — the light slice of a post plus its joins."""
+
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    body_start: str
+    status: str
+    has_unpublished_changes: bool
+    category_id: uuid.UUID | None
+    category_name: str | None
+    category_slug: str | None
+    tags: list[str]
+    cover_asset_id: uuid.UUID | None
+    cover_url: str | None
+    cover_alt: str | None
+    read_time: int | None
+    word_count: int
+    views: int
+    author_id: uuid.UUID
+    author_name: str | None
+    version: int
+    scheduled_at: datetime.datetime | None
+    schedule_error: str | None
+    published_at: datetime.datetime | None
+    archived_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    rank: float | None = None
+    matched: tuple[str, ...] = ()
+    snippet: str | None = None
+
+
+@dataclass(frozen=True)
+class BlogStatusStats:
+    counts: dict[str, int]
+    created_since: int
+    next_scheduled_at: datetime.datetime | None
+    failed_schedules: int
 
 
 @dataclass(frozen=True)

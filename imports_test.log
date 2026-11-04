@@ -2,25 +2,25 @@ start
 >>> from app.infrastructure.persistence.database import engine
     OK (0.00s, total 0.00s)
 >>> from app.infrastructure.persistence.orm.models import Base
-    OK (0.08s, total 0.09s)
+    OK (0.10s, total 0.10s)
 >>> from app.infrastructure.persistence.repositories.project_repository import SqlAlchemyProjectRepository
-    OK (0.01s, total 0.09s)
+    OK (0.00s, total 0.11s)
 >>> from app.infrastructure.persistence.repositories.media_asset_repository import SqlAlchemyMediaAssetRepository
-    OK (0.01s, total 0.10s)
+    OK (0.00s, total 0.11s)
 >>> from app.application.use_cases.projects.list_projects import ListProjects
-    OK (0.02s, total 0.12s)
+    OK (0.01s, total 0.12s)
 >>> from app.application.use_cases.projects.bulk_action import BulkAction
     OK (0.00s, total 0.12s)
 >>> from app.application.use_cases.projects.get_status_counts import GetStatusCounts
     OK (0.00s, total 0.12s)
 >>> from app.api.v1.dependencies.providers import get_list_projects
-    OK (0.22s, total 0.34s)
+    OK (0.26s, total 0.38s)
 >>> from app.api.v1.endpoints.projects import router as proj_router
-    OK (0.08s, total 0.42s)
+    OK (0.11s, total 0.49s)
 >>> from app.api.v1.endpoints.media import router as media_router
-    OK (0.02s, total 0.44s)
+    OK (0.02s, total 0.51s)
 >>> from app.api.v1.router import api_router
-    OK (0.11s, total 0.55s)
+    OK (0.13s, total 0.64s)
 >>> from app.main import app
-    OK (0.04s, total 0.59s)
+    OK (0.05s, total 0.69s)
 ALL DONE

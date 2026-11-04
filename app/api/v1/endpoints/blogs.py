@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import threading
 import time
@@ -18,11 +19,16 @@ from contextlib import contextmanager
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 
 from app.api.v1.dependencies.auth import get_current_admin
 from app.api.v1.dependencies.providers import (
     get_blog_checklist,
     get_blog_preview,
+    get_blog_stats,
+    get_bulk_blog_action,
+    get_list_blog_posts,
+    get_unarchive_blog_post,
     get_check_blog_slug,
     get_create_blog_post,
     get_create_blog_revision,
@@ -42,11 +48,15 @@ from app.api.v1.dependencies.providers import (
     get_update_blog_post,
 )
 from app.api.v1.schemas.blog import (
+    BlogStatsResponse,
+    BulkRequest,
+    BulkResultResponse,
     ChecklistResponse,
     CreateRevisionRequest,
     LinkTargetListResponse,
     LinkTargetResponse,
     PostDetailResponse,
+    PostListResponse,
     PostWritable,
     PreviewResponse,
     ResolvedEmbedResponse,
@@ -61,8 +71,9 @@ from app.api.v1.schemas.blog import (
     UpdatePostRequest,
     VersionRequest,
 )
-from app.application.dtos.blog import RevisionView
+from app.application.dtos.blog import LIST_SORTS, PostListParams, RevisionView
 from app.application.use_cases.blog.editor_support import GetEditorConfig, ResolveEmbed, SearchLinkTargets
+from app.application.use_cases.blog.manager import BulkBlogAction, GetBlogStats, ListBlogPosts, UnarchiveBlogPost
 from app.application.use_cases.blog.posts import (
     CheckBlogSlug,
     CreateBlogPost,
@@ -98,6 +109,7 @@ from app.domain.exceptions import (
 )
 from app.infrastructure.persistence.orm.models import Users
 
+logger = logging.getLogger("app.blogs")
 router = APIRouter(prefix="/admin/blogs", tags=["Blog editor"])
 
 
@@ -138,6 +150,13 @@ def domain_errors() -> Iterator[None]:
         raise _http(404, "NOT_FOUND", str(exc)) from exc
     except PermissionError as exc:
         raise _http(403, "FORBIDDEN", str(exc)) from exc
+    except IntegrityError as exc:
+        # A DB constraint caught what the use case didn't (e.g. two saves racing
+        # for one slug). Name the constraint, never echo the SQL.
+        constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+        logger.warning("Blog write hit constraint %s", constraint, exc_info=exc)
+        raise _http(409, "CONFLICT", "This change conflicts with another post or a database rule. "
+                    "Reload and try again.", {"constraint": constraint}) from exc
 
 
 def _detail(view) -> dict:
@@ -208,6 +227,47 @@ def link_targets(
 ) -> LinkTargetListResponse:
     items = use_case.execute(q, limit)
     return LinkTargetListResponse(items=[LinkTargetResponse.model_validate(i) for i in items])
+
+
+# ── 24–26. Blog Manager: list, stats, bulk ("Blog Manager API.md") ───────────
+
+
+@router.get("", response_model=PostListResponse, summary="List, filter and search posts")
+def list_posts(
+    status_filter: list[str] | None = Query(default=None, alias="status",
+                                           description="Repeatable: draft | published | scheduled | archived"),
+    category_id: str | None = Query(default=None, description="Category UUID or 'none'"),
+    q: str | None = None,
+    sort: str | None = Query(default=None, description=" | ".join(LIST_SORTS)),
+    dir: str | None = Query(default=None, description="asc | desc"),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1),
+    admin: Users = Depends(get_current_admin),
+    use_case: ListBlogPosts = Depends(get_list_blog_posts),
+) -> PostListResponse:
+    params = PostListParams(statuses=status_filter or [], category_id=category_id, q=q,
+                            sort=sort, dir=dir, page=page, limit=limit)
+    with domain_errors():
+        return PostListResponse.model_validate(use_case.execute(admin.id, params))
+
+
+@router.get("/stats", response_model=BlogStatsResponse, summary="Counts for the stats cards")
+def blog_stats(
+    admin: Users = Depends(get_current_admin),
+    use_case: GetBlogStats = Depends(get_blog_stats),
+) -> BlogStatsResponse:
+    return BlogStatsResponse.model_validate(use_case.execute(admin.id))
+
+
+@router.post("/bulk", response_model=BulkResultResponse, summary="Archive or delete many posts")
+def bulk_action(
+    body: BulkRequest,
+    admin: Users = Depends(get_current_admin),
+    use_case: BulkBlogAction = Depends(get_bulk_blog_action),
+) -> BulkResultResponse:
+    with domain_errors():
+        result = use_case.execute(admin.id, body.action, [(i.id, i.version) for i in body.items])
+    return BulkResultResponse.model_validate(result)
 
 
 # ── 2. create ────────────────────────────────────────────────────────────────
@@ -349,6 +409,20 @@ def discard_changes(
     body: VersionRequest,
     admin: Users = Depends(get_current_admin),
     use_case: DiscardBlogChanges = Depends(get_discard_blog_changes),
+) -> PostDetailResponse:
+    with domain_errors():
+        return PostDetailResponse.model_validate(use_case.execute(post_id, admin.id, body.version))
+
+
+# ── 27. restore from the archive ─────────────────────────────────────────────
+
+
+@router.post("/{post_id}/unarchive", response_model=PostDetailResponse, summary="Restore an archived post to drafts")
+def unarchive(
+    post_id: uuid.UUID,
+    body: VersionRequest,
+    admin: Users = Depends(get_current_admin),
+    use_case: UnarchiveBlogPost = Depends(get_unarchive_blog_post),
 ) -> PostDetailResponse:
     with domain_errors():
         return PostDetailResponse.model_validate(use_case.execute(post_id, admin.id, body.version))

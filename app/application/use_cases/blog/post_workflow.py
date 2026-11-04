@@ -76,9 +76,11 @@ def normalize_tag(raw: str) -> str:
 
 
 def _json_default(value):
-    if isinstance(value, (uuid.UUID, datetime.datetime)):
-        return str(value)
-    raise TypeError(type(value))
+    # UUIDs and datetimes are the expected cases; anything else (date, Decimal…)
+    # is stringified too rather than failing the save with a 500.
+    if isinstance(value, (set, frozenset, tuple)):
+        return list(value)
+    return str(value)
 
 
 class BlogPostWorkflow:
@@ -513,6 +515,25 @@ class BlogPostWorkflow:
         )
         return updated
 
+    # ── archiving ────────────────────────────────────────────────────────
+
+    def archive(self, post: BlogPost, actor_id: uuid.UUID | None) -> BlogPost:
+        """Move a draft, scheduled or live post to the archive. Caller holds the
+        row lock and has checked the version. The live revision, published_at
+        and slug redirects are kept so a restore + publish keeps the URL."""
+        if post.status == "archived":
+            raise InvalidStateError("ALREADY_ARCHIVED", "This post is already archived.")
+        updated = self.repo.update(post.id, post.version, {
+            "status": "archived", "archived_at": self.clock(), "scheduled_at": None,
+        })
+        title = updated.title or updated.slug
+        if post.status == "scheduled":
+            self.record("blog_unscheduled", updated, actor_id,
+                        f"Blog post '{title}' unscheduled (archived).", {"reason": "archived"})
+        self.record("blog_archived", updated, actor_id, f"Blog post '{title}' archived.",
+                    {"previous_status": post.status})
+        return updated
+
     def record(
         self, action: str, post: BlogPost, actor_id: uuid.UUID | None, description: str,
         metadata: dict | None = None,
@@ -535,6 +556,9 @@ def _cloudinary_variant(url: str, transform: str) -> str:
         return url
     head, tail = url.split(marker, 1)
     return f"{head}{marker}{transform}/{tail}"
+
+
+cloudinary_variant = _cloudinary_variant
 
 
 def media_url(media: BlogMedia | None, transform: str | None = None) -> str | None:

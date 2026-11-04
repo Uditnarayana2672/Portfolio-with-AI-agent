@@ -178,3 +178,91 @@ class DueRunResult:
     checked_at: datetime.datetime
     published: list[dict]
     failed: list[dict]
+
+
+# ── Blog Manager ─────────────────────────────────────────────────────────────
+
+LIST_STATUSES = ("draft", "published", "scheduled", "archived")
+LIST_SORTS = ("updated_at", "published_at", "created_at", "title", "views", "relevance")
+BULK_ACTIONS = ("archive", "delete")
+BULK_MAX_ITEMS = 100
+LIST_MAX_LIMIT = 100
+SEARCH_MIN_CHARS = 2
+SEARCH_MAX_CHARS = 100
+
+
+@dataclass(frozen=True)
+class PostListParams:
+    """Raw list parameters as the HTTP layer received them."""
+
+    statuses: list[str] = field(default_factory=list)
+    category_id: str | None = None
+    q: str | None = None
+    sort: str | None = None
+    dir: str | None = None
+    page: int = 1
+    limit: int = 20
+
+
+@dataclass(frozen=True)
+class PostListItemView:
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    status: str
+    has_unpublished_changes: bool
+    category: dict | None
+    tags: list[str]
+    cover: dict | None
+    read_time: int | None
+    word_count: int
+    views: int
+    author: dict | None
+    version: int
+    scheduled_at: datetime.datetime | None
+    schedule_error: str | None
+    published_at: datetime.datetime | None
+    archived_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    search: dict | None
+
+
+@dataclass(frozen=True)
+class PostListResult:
+    items: list[PostListItemView]
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+    facets: dict
+    applied: dict
+
+
+@dataclass(frozen=True)
+class BlogStatsView:
+    total: int
+    published: int
+    draft: int
+    scheduled: int
+    archived: int
+    created_this_month: int
+    next_scheduled_at: datetime.datetime | None
+    failed_schedules: int
+
+
+@dataclass(frozen=True)
+class BulkFailure:
+    id: uuid.UUID
+    error: str
+    message: str
+    current_version: int | None = None
+
+
+@dataclass(frozen=True)
+class BulkResultView:
+    action: str
+    requested: int
+    succeeded: list[uuid.UUID]
+    failed: list[BulkFailure]
