@@ -21,7 +21,6 @@ Paragraph = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1
 ItemId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,40}$")]
 Year = Annotated[int, Field(ge=1950, le=2100)]
 Fraction = Annotated[float, Field(ge=0, le=1)]
-ThroughLineLabel = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]
 
 _CROP_TOLERANCE = 0.001  # the admin's crop tool rounds its fractions
 
@@ -104,7 +103,6 @@ class Stat(_Strict):
 class About(_Strict):
     statement: Paragraph
     today: Paragraph
-    through_line: Annotated[list[ThroughLineLabel], Field(min_length=3, max_length=3)]
     stats: Annotated[list[Stat], Field(max_length=6)]
 
     _unique = field_validator("stats")(_unique_ids)

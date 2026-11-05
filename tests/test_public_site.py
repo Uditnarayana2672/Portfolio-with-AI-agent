@@ -111,13 +111,15 @@ def test_upgrade_adds_job_media_slots_without_touching_existing_ones():
 def test_upgrade_seeds_education_once_and_keeps_later_edits():
     doc = upgrade_document(_old_doc())
     assert [e["start_year"] for e in doc["education"]] == [2016, 2023]
-    assert doc["about"]["through_line"] == ["Listen", "Deliver", "Build"]
     doc["education"] = []
     doc["education_section"]["title"] = "Mine"
-    doc["about"]["through_line"] = ["A", "B", "C"]
     again = upgrade_document(doc)
     assert again["education"] == [] and again["education_section"]["title"] == "Mine"
-    assert again["about"]["through_line"] == ["A", "B", "C"]
+
+
+def test_upgrade_drops_removed_through_line_labels():
+    doc = upgrade_document({"about": {"stats": [], "through_line": ["A", "B", "C"]}})
+    assert "through_line" not in doc["about"]
 
 
 def test_upgrade_does_not_share_defaults_between_documents():

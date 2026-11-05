@@ -9,7 +9,6 @@ import copy
 
 PROJECT_COUNT_SOURCE = "published_projects"
 
-DEFAULT_THROUGH_LINE = ["Listen", "Deliver", "Build"]
 DEFAULT_EDUCATION_SECTION = {"title": "Learning the", "title_soft": "theory first."}
 # What the page showed before education became editable.
 DEFAULT_EDUCATION = [
@@ -58,7 +57,7 @@ def upgrade_document(content: dict) -> dict:
             stat["source"] = "manual"
     about = doc.get("about")
     if isinstance(about, dict):
-        about.setdefault("through_line", list(DEFAULT_THROUGH_LINE))
+        about.pop("through_line", None)  # the animation these labelled was removed
     for tech in doc.get("tech") or []:
         categories = tech.pop("categories", None)
         if "category" not in tech and categories:

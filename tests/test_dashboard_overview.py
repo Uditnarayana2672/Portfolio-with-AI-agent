@@ -208,7 +208,7 @@ def _with_url(url: str) -> dict:
         (_with_job(logo={"url": "javascript:alert(1)"}), "experience[1].logo.url"),
         (_content(education=[{**SEED["education"][0], "end_year": 2000}]), "education[0]"),
         (_content(education=[SEED["education"][0], SEED["education"][0]]), "education"),
-        (_content(about={**SEED["about"], "through_line": ["Only", "Two"]}), "about.through_line"),
+        (_content(about={**SEED["about"], "through_line": ["A", "B", "C"]}), "about.through_line"),
         (_with_tech(logo_slug="Bad Slug!"), "tech[3].logo_slug"),
         (_with_tech(extra_field=1), "tech[3].extra_field"),
         (_with_tech(name="  "), "tech[3].name"),
