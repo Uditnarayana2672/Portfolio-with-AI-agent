@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Form:
-    id: uuid.UUID
+    id: str
     author_id: uuid.UUID
     name: str
     form_type: str   # 'contact' | 'discovery' | 'feedback' | 'waitlist' | 'custom'

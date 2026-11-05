@@ -6,6 +6,7 @@ projects respond 404 so their existence is never leaked.
 """
 from __future__ import annotations
 
+import nh3
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.v1.dependencies.providers import (
@@ -28,6 +29,13 @@ from app.domain.exceptions import NotFoundError, ValidationError
 router = APIRouter(prefix="/projects", tags=["Public Projects"])
 
 
+def _safe_config(block_type: str, config: dict) -> dict:
+    """Rich text from the admin is cleaned before a visitor's browser sees it."""
+    if block_type == "text" and isinstance(config.get("content"), str):
+        return {**config, "content": nh3.clean(config["content"])}
+    return config
+
+
 def _neighbor(n) -> PublicProjectNeighborResponse | None:
     if n is None:
         return None
@@ -46,7 +54,7 @@ def _neighbor(n) -> PublicProjectNeighborResponse | None:
     summary="Get a published project by slug (public)",
     description=(
         "Public, unauthenticated read of a published project and its content "
-        "blocks for the project detail page. Increments the view counter. "
+        "blocks for the project detail page. "
         "Only `published` projects with `public`/`unlisted` visibility are "
         "returned; anything else responds 404."
     ),
@@ -63,7 +71,27 @@ def get_public_project(
             detail={"error": "PROJECT_NOT_FOUND", "message": str(exc)},
         ) from exc
 
+    meta = result.meta or {}
+
+    def meta_text(*keys: str) -> str | None:
+        for key in keys:
+            value = meta.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+        return None
+
+    hero_image = next(
+        (b.config.get("background_image_url") for b in result.blocks
+         if b.block_type == "hero" and b.config.get("background_image_url")),
+        None,
+    )
     return PublicProjectResponse(
+        image_url=result.thumbnail_url or hero_image,
+        category=meta_text("category", "kicker"),
+        role=meta_text("role"),
+        timeline=meta_text("timeline_label"),
+        status_label=meta_text("status_label"),
+        recognition=meta_text("recognition"),
         id=result.id,
         title=result.title,
         slug=result.slug,
@@ -87,7 +115,7 @@ def get_public_project(
                 project_id=b.project_id,
                 block_type=b.block_type,
                 position=b.position,
-                config=b.config,
+                config=_safe_config(b.block_type, b.config),
                 created_at=b.created_at,
                 updated_at=b.updated_at,
             )

@@ -19,7 +19,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.v1.dependencies.providers import run_publish_due_posts
+from app.api.v1.dependencies.providers import run_flush_site_builds, run_publish_due_posts
 from app.api.v1.router import api_router
 from app.infrastructure.config import settings
 from app.infrastructure.scheduling.interval_runner import IntervalRunner
@@ -49,14 +49,20 @@ _configure_file_log()
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Start the scheduled-post publisher with the server, stop it on exit."""
-    runner = None
+    runners = []
     if settings.BLOG_SCHEDULER_ENABLED:
-        runner = IntervalRunner(
-            "blog-publish-due", settings.BLOG_SCHEDULER_INTERVAL_SECONDS, run_publish_due_posts
-        )
-        runner.start()
+        runners = [
+            IntervalRunner(
+                "blog-publish-due", settings.BLOG_SCHEDULER_INTERVAL_SECONDS, run_publish_due_posts
+            ),
+            IntervalRunner(
+                "site-build-flush", settings.BLOG_SCHEDULER_INTERVAL_SECONDS, run_flush_site_builds
+            ),
+        ]
+        for runner in runners:
+            runner.start()
     yield
-    if runner is not None:
+    for runner in runners:
         runner.stop()
 
 
@@ -64,6 +70,9 @@ app = FastAPI(
     title="Portfolio API",
     debug=settings.DEBUG,
     lifespan=lifespan,
+    docs_url=None if settings.ENVIRONMENT == "production" else "/docs",
+    redoc_url=None if settings.ENVIRONMENT == "production" else "/redoc",
+    openapi_url=None if settings.ENVIRONMENT == "production" else "/openapi.json",
 )
 
 # Dev: wildcard origins so any localhost port works regardless of which URL
@@ -76,7 +85,7 @@ if settings.ENVIRONMENT == "production":
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.CORS_ALLOWED_ORIGINS.split(),
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )

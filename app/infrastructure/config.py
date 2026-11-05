@@ -55,7 +55,19 @@ class Settings(BaseSettings):
 
     # ── Blog editor ──────────────────────────────────────────────────────────
     # Public site origin, used for canonical URLs, OG tags and previews.
-    SITE_URL: str = "https://uditnarayana.dev"
+    SITE_URL: str = "https://lighthouseinfo.com"
+    PORTFOLIO_SITE_URL: str = "https://uditworks.com"
+
+    # Email (Resend) and spam protection (Turnstile). Empty = feature skips the
+    # external call, which is what local development wants.
+    RESEND_API_KEY: str = ""
+    EMAIL_FROM: str = "Udit Narayana <hello@uditworks.com>"
+    CONTACT_NOTIFY_EMAIL: str = ""
+    TURNSTILE_SECRET_KEY: str = ""
+
+    # Cloudflare Pages deploy hooks. Empty = rebuild requests stay queued.
+    DEPLOY_HOOK_PORTFOLIO: str = ""
+    DEPLOY_HOOK_LIGHTHOUSE: str = ""
     ADMIN_TIMEZONE: str = "Asia/Kolkata"
     # Shared secret for POST /api/v1/internal/blogs/publish-due (external cron).
     # Empty disables that endpoint; the in-process scheduler still runs.
@@ -75,7 +87,7 @@ class Settings(BaseSettings):
 
     # Handy flags
     ENVIRONMENT: str = "development"
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     # Tell pydantic to read values from the .env file
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

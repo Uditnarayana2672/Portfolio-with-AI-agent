@@ -7,6 +7,7 @@ from sqlalchemy import select, update as sa_update
 from sqlalchemy.orm import Session
 
 from app.domain.entities.portfolio_content import PortfolioContent
+from app.domain.portfolio_document import upgrade_document
 from app.domain.repositories.portfolio_content_repository import PortfolioContentRepository
 from app.infrastructure.persistence.orm.models import PortfolioContent as PortfolioContentRow
 from app.infrastructure.persistence.orm.models import Users
@@ -28,7 +29,7 @@ class SqlAlchemyPortfolioContentRepository(PortfolioContentRepository):
         if row is None:
             return None
         return PortfolioContent(
-            content=row.content,
+            content=upgrade_document(row.content),
             version=row.version,
             updated_at=row.updated_at,
             updated_by_name=row.name,

@@ -17,6 +17,7 @@ from app.api.v1.dependencies.auth import get_current_admin, get_current_user
 from app.api.v1.dependencies.providers import (
     get_get_portfolio_content,
     get_list_recent_activity,
+    get_public_site_repository,
     get_update_portfolio_content,
 )
 from app.api.v1.schemas.portfolio import PortfolioDocument
@@ -24,6 +25,7 @@ from app.application.use_cases.activity.list_recent_activity import ListRecentAc
 from app.application.use_cases.portfolio.portfolio_content import GetPortfolioContent, UpdatePortfolioContent
 from app.domain.entities.portfolio_content import PortfolioContent
 from app.domain.exceptions import PortfolioContentNotFoundError, VersionConflictError
+from app.domain.portfolio_document import upgrade_document
 from app.domain.repositories.activity_log_repository import ActivityEntry
 from app.infrastructure.persistence.orm.models import UserRole
 from app.main import app
@@ -32,7 +34,7 @@ _NOW = datetime.datetime(2026, 11, 5, 12, 0, tzinfo=datetime.timezone.utc)
 _ADMIN = SimpleNamespace(id=uuid.uuid4(), name="Udit Narayana")
 
 _SEED_SQL = (Path(__file__).resolve().parents[1] / "supabase/migrations/007_portfolio_content.sql").read_text()
-SEED = json.loads(re.search(r"\$seed\$(.*)\$seed\$", _SEED_SQL, re.S).group(1))
+SEED = upgrade_document(json.loads(re.search(r"\$seed\$(.*)\$seed\$", _SEED_SQL, re.S).group(1)))
 
 
 def _doc(content: dict | None = None, version: int = 1) -> PortfolioContent:
@@ -188,7 +190,7 @@ def _with_job(**changes) -> dict:
 
 def _with_url(url: str) -> dict:
     hero = copy.deepcopy(SEED["hero"])
-    hero["currently_building"]["url"] = url
+    hero["portrait"] = {"url": url, "alt": "Udit", "media_asset_id": None}
     return _content(hero=hero)
 
 
@@ -202,8 +204,8 @@ def _with_url(url: str) -> dict:
         (_with_tech(extra_field=1), "tech[3].extra_field"),
         (_with_tech(name="  "), "tech[3].name"),
         (_with_job(end_year=2000), "experience[1]"),
-        (_with_url("javascript:alert(1)"), "hero.currently_building.url"),
-        (_with_url("http://insecure.example"), "hero.currently_building.url"),
+        (_with_url("javascript:alert(1)"), "hero.portrait.url"),
+        (_with_url("http://insecure.example"), "hero.portrait.url"),
         (_content(tech=[SEED["tech"][0], SEED["tech"][0]]), "tech"),
         (_content(tech=[{**SEED["tech"][0], "id": f"x{i}"} for i in range(61)]), "tech"),
         (_content(hero={**SEED["hero"], "headline": "x" * 121}), "hero.headline"),
@@ -265,6 +267,9 @@ def test_admin_routes_reject_non_admins(method, path):
 
 def test_public_read_needs_no_login_and_hides_edit_details(repo):
     app.dependency_overrides[get_get_portfolio_content] = lambda: GetPortfolioContent(repo)
+    site = Mock()
+    site.list_public_projects.return_value = []
+    app.dependency_overrides[get_public_site_repository] = lambda: site
     try:
         res = TestClient(app).get("/api/v1/portfolio-content")
     finally:

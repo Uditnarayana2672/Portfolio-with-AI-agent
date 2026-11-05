@@ -47,7 +47,8 @@ class UpdateBlock:
             merged = {**existing.config, **cmd.config}
             validated = self._validator.validate(existing.block_type, merged)
             validate_block_business_rules(existing.block_type, validated)
-            if validated != existing.config:
+            # Compare normalized forms: stored configs may predate newer optional fields.
+            if validated != self._validator.validate(existing.block_type, existing.config):
                 new_config = validated
 
         # ── position: set directly (a separate reorder endpoint normalizes). ──

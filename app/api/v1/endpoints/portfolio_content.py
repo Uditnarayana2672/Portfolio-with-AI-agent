@@ -1,12 +1,12 @@
 """Portfolio content endpoints (presentation layer).
 
-Admin: load and save the one document. Public: read-only copy for the site.
+Admin: load and save the one document. The public read lives in public_site.py.
 """
 from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api.v1.dependencies.auth import get_current_admin
@@ -15,7 +15,6 @@ from app.api.v1.schemas.portfolio import (
     MAX_DOCUMENT_BYTES,
     AdminPortfolioContentResponse,
     PortfolioDocument,
-    PublicPortfolioContentResponse,
     SavedPortfolioContentResponse,
     UpdatePortfolioContentRequest,
 )
@@ -24,9 +23,6 @@ from app.domain.exceptions import PortfolioContentNotFoundError, VersionConflict
 from app.infrastructure.persistence.orm.models import Users
 
 router = APIRouter(prefix="/admin/portfolio-content", tags=["Portfolio content"])
-public_router = APIRouter(prefix="/portfolio-content", tags=["Public portfolio content"])
-
-_PUBLIC_CACHE = "public, max-age=60"
 
 
 def _http(code: int, error: str, message: str, detail: dict | None = None) -> HTTPException:
@@ -112,16 +108,3 @@ def update_content(
         content=doc.content,
         changed_sections=saved.changed_sections,
     )
-
-
-@public_router.get("", response_model=PublicPortfolioContentResponse, summary="Read the portfolio content (public)")
-def get_public_content(
-    response: Response,
-    use_case: GetPortfolioContent = Depends(get_get_portfolio_content),
-) -> PublicPortfolioContentResponse:
-    try:
-        doc = use_case.execute()
-    except PortfolioContentNotFoundError as exc:
-        raise _not_found(exc) from exc
-    response.headers["Cache-Control"] = _PUBLIC_CACHE
-    return PublicPortfolioContentResponse(updated_at=doc.updated_at, content=doc.content)

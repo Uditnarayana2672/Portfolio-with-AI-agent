@@ -410,6 +410,7 @@ class PublicProjectResponse(BaseModel):
     slug: str
     excerpt: str | None
     thumbnail_url: str | None
+    image_url: str | None = None
     tech_stack: list[str]
     template_id: str
     github_url: str | None
@@ -417,6 +418,11 @@ class PublicProjectResponse(BaseModel):
     views: int
     seo: SeoResponse
     meta: dict
+    category: str | None = None
+    role: str | None = None
+    timeline: str | None = None
+    status_label: str | None = None
+    recognition: str | None = None
     blocks: list[BlockResponse]
     reactions: dict
     prev_project: PublicProjectNeighborResponse | None

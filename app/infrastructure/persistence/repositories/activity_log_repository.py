@@ -12,7 +12,13 @@ from app.infrastructure.persistence.orm.models import (
     ActivityType,
     BlogPosts,
     MediaAssets,
+    ProjectStatus,
     Projects,
+)
+from app.infrastructure.persistence.repositories.site_build_repository import (
+    QUIET_PERIOD_SECONDS,
+    SqlAlchemySiteBuildRepository,
+    sites_for_activity,
 )
 
 # entity_type values that point at a table row, for the "does it still exist" check.
@@ -47,6 +53,18 @@ class SqlAlchemyActivityLogRepository(ActivityLogRepository):
         # Same session/transaction as the media insert — the request commits both
         # together (see get_db). Flush surfaces any FK/enum error here and now.
         self._db.flush()
+        self._mark_public_sites(action_type, entity_type, entity_id)
+
+    def _mark_public_sites(self, action_type: str, entity_type: str | None, entity_id: uuid.UUID | None) -> None:
+        """Every public-facing change is logged here, so this is the one place
+        that tells the sites to rebuild."""
+        builds = SqlAlchemySiteBuildRepository(self._db)
+        builds.mark(sites_for_activity(action_type))
+        if action_type == "project_updated" and entity_type == "project" and entity_id:
+            status = self._db.scalar(select(Projects.status).where(Projects.id == entity_id))
+            # Draft edits are invisible. Others save often, so they wait for a quiet period.
+            if status is not None and status != ProjectStatus.DRAFT:
+                builds.mark(("portfolio",), delay_seconds=QUIET_PERIOD_SECONDS)
 
     def list_recent(self, limit: int) -> list[ActivityEntry]:
         rows = self._db.scalars(

@@ -1,45 +1,37 @@
-"""SQLAlchemy implementation of FormRepository (infrastructure layer)."""
+"""Fixed form types (infrastructure layer).
+
+The site has one real form, and these are the reasons a visitor can use it for.
+Submissions land in the admin Inbox. There is no form builder or forms table.
+"""
 from __future__ import annotations
 
+import datetime
 import uuid
-
-from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from app.domain.entities.form import Form
 from app.domain.repositories.form_repository import FormRepository
-from app.infrastructure.persistence.orm.models import Forms
+
+_EPOCH = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+_FORMS = (
+    ("contact", "Contact / general enquiry", "contact"),
+    ("discovery", "Project discovery call request", "discovery"),
+    ("feedback", "Feedback", "feedback"),
+)
 
 
-class SqlAlchemyFormRepository(FormRepository):
-    def __init__(self, db: Session) -> None:
-        self._db = db
-
+class StaticFormRepository(FormRepository):
     def list(self, author_id: uuid.UUID, search: str | None) -> list[Form]:
-        q = select(Forms).where(Forms.author_id == author_id)
+        rows = [self._form(*row, author_id) for row in _FORMS]
         if search:
-            q = q.where(Forms.name.ilike(f"%{search}%"))
-        rows = (
-            self._db.execute(q.order_by(Forms.created_at.desc())).scalars().all()
-        )
-        return [self._to_entity(row) for row in rows]
+            rows = [f for f in rows if search.lower() in f.name.lower()]
+        return rows
 
-    def get(self, id: uuid.UUID) -> Form | None:
-        row = (
-            self._db.execute(select(Forms).where(Forms.id == id)).scalars().first()
-        )
-        if row is None:
-            return None
-        return self._to_entity(row)
+    def get(self, id) -> Form | None:
+        return next((self._form(*row, uuid.UUID(int=0)) for row in _FORMS if row[0] == str(id)), None)
 
     @staticmethod
-    def _to_entity(row: Forms) -> Form:
+    def _form(form_id: str, name: str, form_type: str, author_id: uuid.UUID) -> Form:
         return Form(
-            id=row.id,
-            author_id=row.author_id,
-            name=row.name,
-            form_type=row.form_type,
-            config=dict(row.config or {}),
-            created_at=row.created_at,
-            updated_at=row.updated_at,
+            id=form_id, author_id=author_id, name=name, form_type=form_type,
+            config={}, created_at=_EPOCH, updated_at=_EPOCH,
         )

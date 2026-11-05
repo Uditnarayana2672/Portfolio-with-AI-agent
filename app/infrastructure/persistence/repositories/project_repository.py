@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.domain.entities.block import Block
 from app.domain.entities.project import Project
 from app.domain.repositories.project_repository import NewProject, ProjectRepository
+from app.infrastructure.persistence.repositories.site_build_repository import SqlAlchemySiteBuildRepository
 from app.infrastructure.persistence.orm.models import (
     ContentType,
     ContentVisibility,
@@ -301,6 +302,7 @@ class SqlAlchemyProjectRepository(ProjectRepository):
     def bulk_update_status(
         self, project_ids: list[uuid.UUID], status: str, author_id: uuid.UUID
     ) -> list[uuid.UUID]:
+        SqlAlchemySiteBuildRepository(self._db).mark(("portfolio",))
         now = datetime.datetime.now(datetime.timezone.utc)
         result = self._db.execute(
             sa_update(Projects)
@@ -314,6 +316,7 @@ class SqlAlchemyProjectRepository(ProjectRepository):
     def bulk_delete(
         self, project_ids: list[uuid.UUID], author_id: uuid.UUID
     ) -> list[uuid.UUID]:
+        SqlAlchemySiteBuildRepository(self._db).mark(("portfolio",))
         # Confirm ownership and collect IDs that will actually be deleted.
         owned = self.get_owned_ids(project_ids, author_id)
         if not owned:
@@ -330,6 +333,7 @@ class SqlAlchemyProjectRepository(ProjectRepository):
     def bulk_set_featured(
         self, project_ids: list[uuid.UUID], is_featured: bool, author_id: uuid.UUID
     ) -> list[uuid.UUID]:
+        SqlAlchemySiteBuildRepository(self._db).mark(("portfolio",))
         now = datetime.datetime.now(datetime.timezone.utc)
         result = self._db.execute(
             sa_update(Projects)

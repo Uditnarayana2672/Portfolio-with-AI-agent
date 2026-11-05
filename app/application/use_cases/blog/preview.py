@@ -65,6 +65,10 @@ class GetBlogPreview:
             generated_at=wf.clock(),
         )
 
+    def public_post(self, post: BlogPost) -> PublicPost:
+        """The reader payload for one post state (used by the public blog API)."""
+        return self._public_post(post)
+
     def _public_post(self, post: BlogPost) -> PublicPost:
         wf = self._wf
         content, _ = normalize_document(post.content or None)
@@ -153,4 +157,9 @@ class GetBlogPreview:
 
     def _resolve_link(self, ref: dict) -> str | None:
         target = self._wf.repo.link_target_status(ref["type"], uuid.UUID(ref["id"]))
-        return target[1] if target else None
+        if not target:
+            return None
+        # The blog and the portfolio are separate sites, so links are absolute.
+        settings = self._wf.settings
+        base = settings.portfolio_url if ref["type"] == "project" else settings.site_url
+        return f"{base.rstrip('/')}{target[1]}"

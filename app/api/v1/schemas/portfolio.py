@@ -36,15 +36,15 @@ def _unique_ids(items: list[Any]) -> list[Any]:
     return items
 
 
-class CurrentlyBuilding(_Strict):
-    title: Line
-    subtitle: Line
-    url: str | None = None
+class Portrait(_Strict):
+    url: str
+    alt: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] = ""
+    media_asset_id: str | None = None
 
     @field_validator("url")
     @classmethod
-    def _safe_url(cls, value: str | None) -> str | None:
-        if value is not None and (len(value) > 500 or not _SAFE_URL.match(value)):
+    def _safe_url(cls, value: str) -> str:
+        if len(value) > 500 or not _SAFE_URL.match(value):
             raise ValueError("must be an https:// URL or a site path")
         return value
 
@@ -55,14 +55,23 @@ class Hero(_Strict):
     headline_accent: Headline
     intro: Paragraph
     highlights: Annotated[list[Line], Field(max_length=6)]
-    currently_building: CurrentlyBuilding
+    portrait: Portrait | None = None
 
 
 class Stat(_Strict):
     id: ItemId
-    value: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=12)]
+    source: Literal["manual", "published_projects"] = "manual"
+    value: Annotated[str, StringConstraints(strip_whitespace=True, max_length=12)] | None = None
     suffix: Annotated[str, StringConstraints(strip_whitespace=True, max_length=4)]
     label: Line
+
+    @model_validator(mode="after")
+    def _value_matches_source(self) -> "Stat":
+        if self.source == "manual" and not self.value:
+            raise ValueError("a manual stat needs a value")
+        if self.source != "manual":
+            self.value = None  # always calculated
+        return self
 
 
 class About(_Strict):

@@ -100,6 +100,7 @@ class ResourceType(str, enum.Enum):
 class SubscriberStatus(str, enum.Enum):
     ACTIVE = 'active'
     UNSUBSCRIBED = 'unsubscribed'
+    PENDING = 'pending'
     BOUNCED = 'bounced'
 
 
@@ -254,6 +255,9 @@ class NewsletterSubscribers(Base):
     name: Mapped[Optional[str]] = mapped_column(Text)
     unsubscribe_token: Mapped[Optional[str]] = mapped_column(Text, server_default=text("encode(gen_random_bytes(32), 'hex'::text)"))
     unsubscribed_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+    confirm_token: Mapped[Optional[str]] = mapped_column(Text)
+    confirm_expires_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+    confirmed_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
 
 
 class PageViews(Base):
@@ -288,6 +292,7 @@ class Polls(Base):
     assigned_to_type: Mapped[Optional[ContentType]] = mapped_column(Enum(ContentType, values_callable=lambda cls: [member.value for member in cls], name='content_type'))
     assigned_to_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     expires_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+    block_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
 
     poll_votes: Mapped[list['PollVotes']] = relationship('PollVotes', back_populates='poll')
 
@@ -321,7 +326,24 @@ class Users(Base):
     projects: Mapped[list['Projects']] = relationship('Projects', back_populates='author')
     reactions: Mapped[list['Reactions']] = relationship('Reactions', back_populates='user')
     comments: Mapped[list['Comments']] = relationship('Comments', back_populates='user')
-    forms: Mapped[list['Forms']] = relationship('Forms', back_populates='author')
+
+
+class NewsletterSends(Base):
+    __tablename__ = 'newsletter_sends'
+
+    post_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    recipients: Mapped[int] = mapped_column(Integer, nullable=False)
+    sent_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
+
+
+class SiteBuilds(Base):
+    __tablename__ = 'site_builds'
+
+    site: Mapped[str] = mapped_column(Text, primary_key=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
+    dirty_since: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+    trigger_after: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+    last_triggered_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
 
 
 class PortfolioContent(Base):
@@ -338,25 +360,6 @@ class PortfolioContent(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
     updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
-
-
-class Forms(Base):
-    __tablename__ = 'forms'
-    __table_args__ = (
-        ForeignKeyConstraint(['author_id'], ['users.id'], name='forms_author_id_fkey'),
-        PrimaryKeyConstraint('id', name='forms_pkey'),
-        Index('idx_forms_author', 'author_id'),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
-    author_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
-    form_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'custom'::text"))
-    config: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
-    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
-
-    author: Mapped['Users'] = relationship('Users', back_populates='forms')
 
 
 class ActivityLog(Base):
@@ -653,7 +656,7 @@ class PollVotes(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     poll_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
-    option_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    option_index: Mapped[int] = mapped_column(Integer, nullable=False)
     voted_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     session_id: Mapped[Optional[str]] = mapped_column(Text)

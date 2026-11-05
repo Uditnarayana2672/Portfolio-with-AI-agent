@@ -1,0 +1,27 @@
+# Weekly database export, kept as a GitHub Actions artifact for 90 days.
+# Needs a repository secret named DIRECT_URL (the direct Postgres connection string).
+name: Weekly database backup
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install the Postgres client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+      - name: Export
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: /usr/lib/postgresql/17/bin/pg_dump "$DIRECT_URL" --schema=public --format=custom --file=backup.dump
+      - uses: actions/upload-artifact@v4
+        with:
+          name: database-backup
+          path: backup.dump
+          retention-days: 90

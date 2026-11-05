@@ -21,6 +21,24 @@ from sqlalchemy.orm import Session
 
 from app.application.dtos.blog import BlogSettings
 from app.application.use_cases.activity.list_recent_activity import ListRecentActivity
+from app.application.interfaces.site_services import CaptchaVerifier, EmailSender, SiteDeployer
+from app.application.use_cases.inbox.newsletter_send import PrepareNewsletterSend
+from app.application.use_cases.public_site.blogs import PublicBlog
+from app.application.use_cases.public_site.interactions import (
+    Engagement,
+    Newsletter,
+    PublicComments,
+    PublicPolls,
+    SubmitContactMessage,
+)
+from app.application.use_cases.public_site.projects import ListProjectSlugs, ListPublicProjects
+from app.application.use_cases.public_site.site_builds import SiteBuilds
+from app.domain.repositories.inbox_repository import InboxRepository
+from app.domain.repositories.public_site_repository import PublicSiteRepository
+from app.infrastructure.external.site_services import CloudflareDeployer, ResendEmailSender, TurnstileVerifier
+from app.infrastructure.persistence.repositories.inbox_repository import SqlAlchemyInboxRepository
+from app.infrastructure.persistence.repositories.public_site_repository import SqlAlchemyPublicSiteRepository
+from app.infrastructure.persistence.repositories.site_build_repository import SqlAlchemySiteBuildRepository
 from app.application.use_cases.portfolio.portfolio_content import GetPortfolioContent, UpdatePortfolioContent
 from app.application.interfaces.image_storage import ImageStorage
 from app.application.use_cases.blog.editor_support import GetEditorConfig, ResolveEmbed, SearchLinkTargets
@@ -115,9 +133,7 @@ from app.infrastructure.rendering.tiptap_renderer import TipTapHtmlRenderer
 from app.infrastructure.persistence.repositories.block_repository import (
     SqlAlchemyBlockRepository,
 )
-from app.infrastructure.persistence.repositories.form_repository import (
-    SqlAlchemyFormRepository,
-)
+from app.infrastructure.persistence.repositories.form_repository import StaticFormRepository
 from app.infrastructure.persistence.repositories.project_repository import (
     SqlAlchemyProjectRepository,
 )
@@ -232,9 +248,8 @@ def get_import_url_media(
 # ── forms ─────────────────────────────────────────────────────────────────────
 
 
-def get_form_repository(db: Session = Depends(get_db)) -> FormRepository:
-    """Bind the SQLAlchemy form repository to the request's DB session."""
-    return SqlAlchemyFormRepository(db)
+def get_form_repository() -> FormRepository:
+    return StaticFormRepository()
 
 
 def get_list_forms(
@@ -388,7 +403,11 @@ def get_bulk_action(
 
 
 def get_blog_settings() -> BlogSettings:
-    return BlogSettings(site_url=settings.SITE_URL, timezone=settings.ADMIN_TIMEZONE)
+    return BlogSettings(
+        site_url=settings.SITE_URL,
+        portfolio_url=settings.PORTFOLIO_SITE_URL,
+        timezone=settings.ADMIN_TIMEZONE,
+    )
 
 
 def get_blog_post_repository(db: Session = Depends(get_db)) -> BlogPostRepository:
@@ -551,6 +570,104 @@ def get_update_portfolio_content(db: Session = Depends(get_db)) -> UpdatePortfol
         repo=SqlAlchemyPortfolioContentRepository(db),
         activity=SqlAlchemyActivityLogRepository(db),
     )
+
+
+# ── public site ──────────────────────────────────────────────────────────────
+
+
+def get_public_site_repository(db: Session = Depends(get_db)) -> PublicSiteRepository:
+    return SqlAlchemyPublicSiteRepository(db)
+
+
+def get_inbox_repository(db: Session = Depends(get_db)) -> InboxRepository:
+    return SqlAlchemyInboxRepository(db)
+
+
+def get_email_sender() -> EmailSender:
+    return ResendEmailSender(settings.RESEND_API_KEY, settings.EMAIL_FROM)
+
+
+def get_captcha() -> CaptchaVerifier:
+    return TurnstileVerifier(settings.TURNSTILE_SECRET_KEY)
+
+
+def _site_deployer() -> SiteDeployer:
+    return CloudflareDeployer({
+        "portfolio": settings.DEPLOY_HOOK_PORTFOLIO,
+        "lighthouse": settings.DEPLOY_HOOK_LIGHTHOUSE,
+    })
+
+
+def get_list_public_projects(repo: PublicSiteRepository = Depends(get_public_site_repository)) -> ListPublicProjects:
+    return ListPublicProjects(repo)
+
+
+def get_list_project_slugs(repo: PublicSiteRepository = Depends(get_public_site_repository)) -> ListProjectSlugs:
+    return ListProjectSlugs(repo)
+
+
+def get_public_blog(
+    repo: PublicSiteRepository = Depends(get_public_site_repository),
+    workflow: BlogPostWorkflow = Depends(get_blog_workflow),
+) -> PublicBlog:
+    return PublicBlog(repo, workflow)
+
+
+def get_engagement(repo: PublicSiteRepository = Depends(get_public_site_repository)) -> Engagement:
+    return Engagement(repo)
+
+
+def get_public_polls(repo: PublicSiteRepository = Depends(get_public_site_repository)) -> PublicPolls:
+    return PublicPolls(repo)
+
+
+def get_public_comments(
+    repo: PublicSiteRepository = Depends(get_public_site_repository),
+    captcha: CaptchaVerifier = Depends(get_captcha),
+) -> PublicComments:
+    return PublicComments(repo, captcha)
+
+
+def get_submit_contact_message(
+    repo: PublicSiteRepository = Depends(get_public_site_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+    captcha: CaptchaVerifier = Depends(get_captcha),
+    email: EmailSender = Depends(get_email_sender),
+) -> SubmitContactMessage:
+    return SubmitContactMessage(repo, activity, captcha, email, settings.CONTACT_NOTIFY_EMAIL)
+
+
+def get_newsletter(
+    repo: PublicSiteRepository = Depends(get_public_site_repository),
+    activity: ActivityLogRepository = Depends(get_activity_repository),
+    captcha: CaptchaVerifier = Depends(get_captcha),
+    email: EmailSender = Depends(get_email_sender),
+) -> Newsletter:
+    return Newsletter(repo, activity, captcha, email, settings.SITE_URL)
+
+
+def get_prepare_newsletter_send(
+    repo: InboxRepository = Depends(get_inbox_repository),
+    workflow: BlogPostWorkflow = Depends(get_blog_workflow),
+) -> PrepareNewsletterSend:
+    return PrepareNewsletterSend(repo, workflow)
+
+
+def get_site_builds(db: Session = Depends(get_db)) -> SiteBuilds:
+    return SiteBuilds(SqlAlchemySiteBuildRepository(db), _site_deployer())
+
+
+def run_flush_site_builds() -> None:
+    """One scheduler tick outside a request: ask the host for any due rebuilds."""
+    db = SessionLocal()
+    try:
+        SiteBuilds(SqlAlchemySiteBuildRepository(db), _site_deployer()).flush()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def run_publish_due_posts() -> None:

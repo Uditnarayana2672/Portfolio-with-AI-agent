@@ -26,11 +26,6 @@ class GetPublicProject:
             raise NotFoundError(f"Project '{slug}' not found.")
         project, blocks = pair
 
-        # Count this visit. Best-effort: a failure here should not hide the page,
-        # but since the whole request shares one transaction we let the repo bump
-        # and reflect the new total in the response.
-        new_views = self._repo.increment_views(project.id)
-
         reactions = self._repo.get_reaction_counts(project.id)
         prev_n, next_n = self._resolve_neighbors(slug)
 
@@ -44,7 +39,7 @@ class GetPublicProject:
             template_id=project.template_id,
             github_url=project.github_url,
             demo_url=project.demo_url,
-            views=new_views,
+            views=project.views,
             seo=project.seo,
             meta=project.meta,
             blocks=[

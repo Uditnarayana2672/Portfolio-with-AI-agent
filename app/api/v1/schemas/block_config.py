@@ -39,6 +39,8 @@ class SectionHeaderMixin(BaseModel):
 class HeroConfig(BaseModel):
     heading: str = Field(..., min_length=1)
     subheading: str | None = None
+    caption: str | None = None
+    alt_text: str | None = None
     background_image_url: str | None = None
     background_color: str | None = None
     overlay_opacity: float = Field(0.5, ge=0.0, le=1.0)
@@ -65,6 +67,8 @@ class ImageConfig(SectionHeaderMixin):
     align: Literal["left", "center", "right"] = "center"
     link_url: str | None = None
     rounded: bool = False
+    # Public treatment: auto picks by context, natural keeps true colour, blend tints.
+    display: Literal["auto", "natural", "blend"] = "auto"
 
 
 class GalleryImage(BaseModel):

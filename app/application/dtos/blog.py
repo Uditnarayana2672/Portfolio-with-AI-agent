@@ -31,6 +31,7 @@ MEDIA_FOLDERS = {
 @dataclass(frozen=True)
 class BlogSettings:
     site_url: str = "https://uditnarayana.dev"
+    portfolio_url: str = "https://uditworks.com"
     blog_base_path: str = "/blog"
     timezone: str = "Asia/Kolkata"
     title_suffix: str = " · Udit N."

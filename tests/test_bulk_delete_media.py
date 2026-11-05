@@ -108,7 +108,7 @@ def test_bulk_delete_reports_partial_success_and_freed_bytes() -> None:
     assert result.skipped[0].references[0].title == "Lighthouse Analytics"
     assert result.skipped[1].usage_count == 0
     assert result.skipped[1].references == []
-    storage.delete.assert_called_once_with("portfolio/deletable")
+    storage.delete.assert_called_once_with("portfolio/deletable", resource_type="image")
     assert repo.delete.call_args_list == [call(deletable.id), call(youtube.id)]
     assert activity.record.call_count == 2
 
@@ -143,7 +143,7 @@ def test_bulk_delete_force_removes_in_use_asset() -> None:
     assert result.deleted_count == 1
     assert result.freed_bytes == 1024
     repo.find_usage.assert_not_called()
-    storage.delete.assert_called_once_with("portfolio/in-use")
+    storage.delete.assert_called_once_with("portfolio/in-use", resource_type="image")
     repo.delete.assert_called_once_with(asset.id)
 
 
