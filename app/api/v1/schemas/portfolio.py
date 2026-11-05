@@ -20,6 +20,10 @@ OptionalLine = Annotated[str, StringConstraints(strip_whitespace=True, max_lengt
 Paragraph = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=600)]
 ItemId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,40}$")]
 Year = Annotated[int, Field(ge=1950, le=2100)]
+Fraction = Annotated[float, Field(ge=0, le=1)]
+ThroughLineLabel = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]
+
+_CROP_TOLERANCE = 0.001  # the admin's crop tool rounds its fractions
 
 _LOGO_SLUG = re.compile(r"^[a-z0-9-]{1,60}$")
 _SAFE_URL = re.compile(r"^(https://\S+|/\S*)$")
@@ -36,7 +40,7 @@ def _unique_ids(items: list[Any]) -> list[Any]:
     return items
 
 
-class Portrait(_Strict):
+class ImageRef(_Strict):
     url: str
     alt: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] = ""
     media_asset_id: str | None = None
@@ -47,6 +51,29 @@ class Portrait(_Strict):
         if len(value) > 500 or not _SAFE_URL.match(value):
             raise ValueError("must be an https:// URL or a site path")
         return value
+
+
+class Portrait(ImageRef):
+    pass
+
+
+class Crop(_Strict):
+    """The part of the original image to show, as fractions from 0 to 1."""
+
+    x: Fraction
+    y: Fraction
+    width: Annotated[float, Field(gt=0, le=1)]
+    height: Annotated[float, Field(gt=0, le=1)]
+
+    @model_validator(mode="after")
+    def _inside_image(self) -> "Crop":
+        if self.x + self.width > 1 + _CROP_TOLERANCE or self.y + self.height > 1 + _CROP_TOLERANCE:
+            raise ValueError("the crop must stay inside the image")
+        return self
+
+
+class CroppedImage(ImageRef):
+    crop: Crop | None = None
 
 
 class Hero(_Strict):
@@ -77,6 +104,7 @@ class Stat(_Strict):
 class About(_Strict):
     statement: Paragraph
     today: Paragraph
+    through_line: Annotated[list[ThroughLineLabel], Field(min_length=3, max_length=3)]
     stats: Annotated[list[Stat], Field(max_length=6)]
 
     _unique = field_validator("stats")(_unique_ids)
@@ -105,7 +133,7 @@ class Tech(_Strict):
     id: ItemId
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
     logo_slug: str | None = None
-    categories: Annotated[list[Literal["ai", "backend", "frontend", "cloud"]], Field(min_length=1, max_length=4)]
+    category: Literal["ai", "backend", "frontend", "cloud"]
     level: Literal["working", "advanced", "expert"]
     show_in_strip: bool
     show_in_what_i_do: bool
@@ -127,9 +155,32 @@ class Job(_Strict):
     end_year: Year | None = None
     summary: Paragraph
     highlights: Annotated[list[Line], Field(max_length=8)]
+    logo: ImageRef | None = None
+    images: Annotated[list[CroppedImage], Field(max_length=6)] = []
 
     @model_validator(mode="after")
     def _years(self) -> "Job":
+        if self.end_year is not None and self.end_year < self.start_year:
+            raise ValueError("end_year cannot be before start_year")
+        return self
+
+
+class EducationSection(_Strict):
+    title: Headline
+    title_soft: Headline
+
+
+class Education(_Strict):
+    id: ItemId
+    degree: Headline
+    institution: Headline
+    start_year: Year
+    end_year: Year | None = None
+    summary: Annotated[str, StringConstraints(strip_whitespace=True, max_length=600)] = ""
+    highlights: Annotated[list[Line], Field(max_length=8)]
+
+    @model_validator(mode="after")
+    def _years(self) -> "Education":
         if self.end_year is not None and self.end_year < self.start_year:
             raise ValueError("end_year cannot be before start_year")
         return self
@@ -143,8 +194,10 @@ class PortfolioDocument(_Strict):
     tech: Annotated[list[Tech], Field(max_length=60)]
     experience_section: SectionText
     experience: Annotated[list[Job], Field(max_length=20)]
+    education_section: EducationSection
+    education: Annotated[list[Education], Field(max_length=10)]
 
-    _unique = field_validator("tech", "experience")(_unique_ids)
+    _unique = field_validator("tech", "experience", "education")(_unique_ids)
 
 
 class UpdatePortfolioContentRequest(BaseModel):

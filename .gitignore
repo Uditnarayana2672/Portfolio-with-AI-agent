@@ -20,3 +20,6 @@ venv/
 
 # rotating API error log (app/main.py)
 logs/
+
+# local logs written by the app and test runs
+*.log

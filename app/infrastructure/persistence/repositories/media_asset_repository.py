@@ -138,13 +138,13 @@ class SqlAlchemyMediaAssetRepository(MediaAssetRepository):
 
         refs: List[MediaUsageRef] = []
 
-        # 0) the portfolio page's own content (the portrait)
+        # 0) the portfolio page's own content (portrait, company logos and images)
         portfolio_row = self._db.execute(
             select(PortfolioContent.id).where(func.strpos(cast(PortfolioContent.content, Text), public_id) > 0)
         ).first()
         if portfolio_row is not None:
             refs.append(MediaUsageRef(
-                kind="portfolio", entity_id=uuid.UUID(int=0), title="Portfolio info", location="portrait",
+                kind="portfolio", entity_id=uuid.UUID(int=0), title="Portfolio info", location="main page",
             ))
 
         # 1) project thumbnails

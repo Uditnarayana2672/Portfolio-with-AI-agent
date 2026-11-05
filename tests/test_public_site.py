@@ -87,6 +87,45 @@ def test_upgrade_is_stable_and_leaves_edited_labels_alone():
     assert upgrade_document(once) == once
 
 
+def test_upgrade_keeps_only_the_first_tech_category():
+    doc = upgrade_document({"tech": [{"id": "d", "name": "Docker", "categories": ["backend", "cloud"]}]})
+    assert doc["tech"][0]["category"] == "backend"
+    assert "categories" not in doc["tech"][0]
+
+
+def test_upgrade_does_not_overwrite_a_chosen_category():
+    doc = upgrade_document({"tech": [{"id": "d", "category": "cloud", "categories": ["backend"]}]})
+    assert doc["tech"][0]["category"] == "cloud"
+
+
+def test_upgrade_adds_job_media_slots_without_touching_existing_ones():
+    doc = upgrade_document({"experience": [
+        {"id": "a", "company": "IBM"},
+        {"id": "b", "company": "X", "logo": {"url": "https://x.test/l.png"}, "images": [{"url": "https://x.test/i.jpg"}]},
+    ]})
+    assert doc["experience"][0]["logo"] is None and doc["experience"][0]["images"] == []
+    assert doc["experience"][1]["logo"] == {"url": "https://x.test/l.png"}
+    assert doc["experience"][1]["images"] == [{"url": "https://x.test/i.jpg"}]
+
+
+def test_upgrade_seeds_education_once_and_keeps_later_edits():
+    doc = upgrade_document(_old_doc())
+    assert [e["start_year"] for e in doc["education"]] == [2016, 2023]
+    assert doc["about"]["through_line"] == ["Listen", "Deliver", "Build"]
+    doc["education"] = []
+    doc["education_section"]["title"] = "Mine"
+    doc["about"]["through_line"] = ["A", "B", "C"]
+    again = upgrade_document(doc)
+    assert again["education"] == [] and again["education_section"]["title"] == "Mine"
+    assert again["about"]["through_line"] == ["A", "B", "C"]
+
+
+def test_upgrade_does_not_share_defaults_between_documents():
+    first = upgrade_document({})
+    first["education"][0]["highlights"].append("changed")
+    assert "changed" not in upgrade_document({})["education"][0]["highlights"]
+
+
 def test_resolve_fills_in_real_project_count():
     resolved = resolve_stats(upgrade_document(_old_doc()), 12)
     assert resolved["about"]["stats"][1]["value"] == "12"

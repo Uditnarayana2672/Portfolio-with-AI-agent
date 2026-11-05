@@ -198,8 +198,17 @@ def _with_url(url: str) -> dict:
     ("content", "path"),
     [
         (_with_tech(level="guru"), "tech[3].level"),
-        (_with_tech(categories=[]), "tech[3].categories"),
-        (_with_tech(categories=["mobile"]), "tech[3].categories[0]"),
+        (_with_tech(category="mobile"), "tech[3].category"),
+        (_with_tech(categories=["ai", "cloud"]), "tech[3].categories"),
+        (_with_job(images=[{"url": "https://x.test/a.jpg", "crop": {"x": 0.5, "y": 0, "width": 0.8, "height": 0.5}}]),
+         "experience[1].images[0].crop"),
+        (_with_job(images=[{"url": "https://x.test/a.jpg", "crop": {"x": 0, "y": 0, "width": 0, "height": 0.5}}]),
+         "experience[1].images[0].crop.width"),
+        (_with_job(images=[{"url": "https://x.test/a.jpg"}] * 7), "experience[1].images"),
+        (_with_job(logo={"url": "javascript:alert(1)"}), "experience[1].logo.url"),
+        (_content(education=[{**SEED["education"][0], "end_year": 2000}]), "education[0]"),
+        (_content(education=[SEED["education"][0], SEED["education"][0]]), "education"),
+        (_content(about={**SEED["about"], "through_line": ["Only", "Two"]}), "about.through_line"),
         (_with_tech(logo_slug="Bad Slug!"), "tech[3].logo_slug"),
         (_with_tech(extra_field=1), "tech[3].extra_field"),
         (_with_tech(name="  "), "tech[3].name"),
@@ -355,3 +364,29 @@ def test_activity_endpoint_defaults_to_20(activity_client):
 def test_activity_limit_out_of_range_is_422(activity_client, limit):
     client, _ = activity_client
     assert client.get(f"/api/v1/admin/activity?limit={limit}").status_code == 422
+
+
+def test_job_images_with_crop_and_logo_save_and_come_back(client):
+    image = {
+        "url": "https://res.cloudinary.com/demo/image/upload/v1/ibm.jpg",
+        "alt": "At IBM",
+        "media_asset_id": "abc",
+        "crop": {"x": 0.1, "y": 0.2, "width": 0.5, "height": 0.4},
+    }
+    logo = {"url": "https://res.cloudinary.com/demo/image/upload/v1/logo.png", "alt": "IBM", "media_asset_id": None}
+    res = client.put(
+        "/api/v1/admin/portfolio-content",
+        json={"version": 1, "content": _with_job(logo=logo, images=[image, {**image, "crop": None}])},
+    )
+    assert res.status_code == 200
+    job = res.json()["content"]["experience"][1]
+    assert job["logo"] == logo
+    assert job["images"][0]["crop"] == image["crop"]
+    assert job["images"][1]["crop"] is None
+    assert "experience" in res.json()["changed_sections"]
+
+
+def test_crop_tolerates_rounding_from_the_crop_tool(client):
+    image = {"url": "https://x.test/a.jpg", "crop": {"x": 0.3334, "y": 0, "width": 0.6667, "height": 1}}
+    res = client.put("/api/v1/admin/portfolio-content", json={"version": 1, "content": _with_job(images=[image])})
+    assert res.status_code == 200
