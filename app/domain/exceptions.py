@@ -247,3 +247,7 @@ class BlogNotFoundError(NotFoundError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+class PortfolioContentNotFoundError(NotFoundError):
+    """The portfolio content seed row is missing (→ HTTP 404 CONTENT_NOT_FOUND)."""

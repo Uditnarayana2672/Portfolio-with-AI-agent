@@ -5,7 +5,7 @@ import enum
 import uuid
 
 from pgvector.sqlalchemy.vector import VECTOR
-from sqlalchemy import ARRAY, Boolean, CHAR, CheckConstraint, DateTime, Double, Enum, ForeignKeyConstraint, Index, Integer, Numeric, PrimaryKeyConstraint, Text, UniqueConstraint, Uuid, text
+from sqlalchemy import ARRAY, Boolean, CHAR, CheckConstraint, DateTime, Double, Enum, ForeignKeyConstraint, Index, Integer, Numeric, PrimaryKeyConstraint, SmallInteger, Text, UniqueConstraint, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,6 +37,7 @@ class ActivityType(str, enum.Enum):
     BLOG_CHANGES_DISCARDED = 'blog_changes_discarded'
     BLOG_REVISION_RESTORED = 'blog_revision_restored'
     BLOG_SCHEDULE_FAILED = 'blog_schedule_failed'
+    PORTFOLIO_UPDATED = 'portfolio_updated'
 
 
 class BlogStatus(str, enum.Enum):
@@ -321,6 +322,22 @@ class Users(Base):
     reactions: Mapped[list['Reactions']] = relationship('Reactions', back_populates='user')
     comments: Mapped[list['Comments']] = relationship('Comments', back_populates='user')
     forms: Mapped[list['Forms']] = relationship('Forms', back_populates='author')
+
+
+class PortfolioContent(Base):
+    __tablename__ = 'portfolio_content'
+    __table_args__ = (
+        CheckConstraint('id = 1', name='portfolio_content_id_check'),
+        ForeignKeyConstraint(['updated_by'], ['users.id'], ondelete='SET NULL', name='portfolio_content_updated_by_fkey'),
+        PrimaryKeyConstraint('id', name='portfolio_content_pkey'),
+    )
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, server_default=text('1'))
+    content: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
 
 
 class Forms(Base):

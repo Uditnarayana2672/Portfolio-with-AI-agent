@@ -20,6 +20,8 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.application.dtos.blog import BlogSettings
+from app.application.use_cases.activity.list_recent_activity import ListRecentActivity
+from app.application.use_cases.portfolio.portfolio_content import GetPortfolioContent, UpdatePortfolioContent
 from app.application.interfaces.image_storage import ImageStorage
 from app.application.use_cases.blog.editor_support import GetEditorConfig, ResolveEmbed, SearchLinkTargets
 from app.application.use_cases.blog.manager import BulkBlogAction, GetBlogStats, ListBlogPosts, UnarchiveBlogPost
@@ -93,6 +95,9 @@ from app.infrastructure.external.cloudinary_storage import CloudinaryImageStorag
 from app.infrastructure.external.safe_url_fetcher import SafeHttpUrlFetcher
 from app.infrastructure.external.youtube_metadata import YouTubeMetadataProvider
 from app.infrastructure.persistence.database import SessionLocal, get_db
+from app.infrastructure.persistence.repositories.portfolio_content_repository import (
+    SqlAlchemyPortfolioContentRepository,
+)
 from app.infrastructure.persistence.repositories.activity_log_repository import (
     SqlAlchemyActivityLogRepository,
 )
@@ -531,6 +536,21 @@ def get_bulk_blog_action(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> B
 
 def get_unarchive_blog_post(wf: BlogPostWorkflow = Depends(get_blog_workflow)) -> UnarchiveBlogPost:
     return UnarchiveBlogPost(wf)
+
+
+def get_list_recent_activity(db: Session = Depends(get_db)) -> ListRecentActivity:
+    return ListRecentActivity(SqlAlchemyActivityLogRepository(db))
+
+
+def get_get_portfolio_content(db: Session = Depends(get_db)) -> GetPortfolioContent:
+    return GetPortfolioContent(SqlAlchemyPortfolioContentRepository(db))
+
+
+def get_update_portfolio_content(db: Session = Depends(get_db)) -> UpdatePortfolioContent:
+    return UpdatePortfolioContent(
+        repo=SqlAlchemyPortfolioContentRepository(db),
+        activity=SqlAlchemyActivityLogRepository(db),
+    )
 
 
 def run_publish_due_posts() -> None:

@@ -6,11 +6,13 @@ router here (e.g. media, projects, blog) as it is built.
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    activity,
     blog_taxonomy,
     blogs,
     forms,
     internal_blogs,
     media,
+    portfolio_content,
     projects,
     public_projects,
     users,
@@ -26,3 +28,6 @@ api_router.include_router(forms.router)
 api_router.include_router(blogs.router)
 api_router.include_router(blog_taxonomy.router)
 api_router.include_router(internal_blogs.router)
+api_router.include_router(activity.router)
+api_router.include_router(portfolio_content.router)
+api_router.include_router(portfolio_content.public_router)

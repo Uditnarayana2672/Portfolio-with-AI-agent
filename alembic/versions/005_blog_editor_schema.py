@@ -35,7 +35,7 @@ def downgrade() -> None:
     op.execute(text("""
         drop index if exists public.uq_blog_categories_name_ci;
         alter table public.blog_categories drop column if exists sort_order;
-        drop index if exists public.idx_blog_posts_due;
+        drop index if exists public.idx_blog_posts_due;   
         drop index if exists public.idx_blog_posts_title_trgm;
         drop index if exists public.idx_blog_posts_search;
         create index idx_blog_posts_search on public.blog_posts using gin (
