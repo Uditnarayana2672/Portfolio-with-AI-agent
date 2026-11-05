@@ -1,0 +1,7 @@
+INFO:     127.0.0.1:52255 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52279 - "GET /api/v1/admin/media?limit=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52471 - "GET /api/v1/admin/media/3ad7fc0a-0df0-4128-aa8d-165977eace33/usage HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52471 - "GET /api/v1/admin/media/f6a7b8c9-3333-3333-3333-000000000001/usage HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:52471 - "GET /api/v1/admin/media/3ad7fc0a-0df0-4128-aa8d-165977eace33/usage HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:52471 - "GET /api/v1/admin/media/not-a-uuid/usage HTTP/1.1" 422 Unprocessable Entity
+INFO:     127.0.0.1:52971 - "GET /api/v1/admin/media?limit=100 HTTP/1.1" 200 OK

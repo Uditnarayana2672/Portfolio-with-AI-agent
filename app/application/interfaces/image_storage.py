@@ -61,5 +61,5 @@ class ImageStorage(ABC):
         """Return a delivery URL with automatic format + quality optimisation."""
 
     @abstractmethod
-    def delete(self, public_id: str) -> dict[str, Any]:
-        """Delete the asset by public id."""
+    def delete(self, public_id: str, *, resource_type: str = "image") -> dict[str, Any]:
+        """Delete the asset by public id. Pass resource_type for video/raw assets."""

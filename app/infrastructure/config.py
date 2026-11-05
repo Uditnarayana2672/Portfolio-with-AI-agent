@@ -53,9 +53,41 @@ class Settings(BaseSettings):
     # thumbnail work without it (via oEmbed).
     YOUTUBE_API_KEY: str = ""
 
+    # ── Blog editor ──────────────────────────────────────────────────────────
+    # Public site origin, used for canonical URLs, OG tags and previews.
+    SITE_URL: str = "https://lighthouseinfo.com"
+    PORTFOLIO_SITE_URL: str = "https://uditworks.com"
+
+    # Email (Resend) and spam protection (Turnstile). Empty = feature skips the
+    # external call, which is what local development wants.
+    RESEND_API_KEY: str = ""
+    EMAIL_FROM: str = "Udit Narayana <hello@uditworks.com>"
+    CONTACT_NOTIFY_EMAIL: str = ""
+    TURNSTILE_SECRET_KEY: str = ""
+
+    # Cloudflare Pages deploy hooks. Empty = rebuild requests stay queued.
+    DEPLOY_HOOK_PORTFOLIO: str = ""
+    DEPLOY_HOOK_LIGHTHOUSE: str = ""
+    ADMIN_TIMEZONE: str = "Asia/Kolkata"
+    # Shared secret for POST /api/v1/internal/blogs/publish-due (external cron).
+    # Empty disables that endpoint; the in-process scheduler still runs.
+    BLOG_CRON_SECRET: str = ""
+    # In-process scheduler that publishes due scheduled posts every interval.
+    BLOG_SCHEDULER_ENABLED: bool = True
+    BLOG_SCHEDULER_INTERVAL_SECONDS: int = 60
+
+    # ── CORS ─────────────────────────────────────────────────────────────────
+    # Space-separated list of allowed origins. Covers both `localhost` and
+    # `127.0.0.1` because browsers send whichever variant you typed in the bar
+    # (they are NOT equivalent for the CORS origin check).
+    CORS_ALLOWED_ORIGINS: str = (
+        "http://localhost:5173 http://127.0.0.1:5173 "
+        "http://localhost:3000 http://127.0.0.1:3000"
+    )
+
     # Handy flags
     ENVIRONMENT: str = "development"
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     # Tell pydantic to read values from the .env file
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

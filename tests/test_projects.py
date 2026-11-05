@@ -106,6 +106,7 @@ def _fake_project(**overrides) -> Project:
         is_featured=False,
         views=0,
         seo={},
+        meta={},
         author_id=ADMIN_ID,
         published_at=None,
         created_at=NOW,
@@ -314,10 +315,12 @@ class TestBlockTypeValidation:
         resp = self.client.post(URL, json={"block_type": "", "position": 0, "config": {}})
         assert resp.status_code == 422
 
-    def test_all_13_types_are_accepted_at_schema_level(self):
-        """Verify no type in the 13 is accidentally mapped to None."""
+    def test_all_supported_types_are_accepted_at_schema_level(self):
+        """Verify no supported block type is accidentally mapped to None.
+
+        14 types: the original 13 plus the `embed` block."""
         from app.api.v1.schemas.block_config import BLOCK_CONFIG_MODELS
-        assert len(BLOCK_CONFIG_MODELS) == 13
+        assert len(BLOCK_CONFIG_MODELS) == 14
         for t in BLOCK_CONFIG_MODELS:
             assert BLOCK_CONFIG_MODELS[t] is not None
 

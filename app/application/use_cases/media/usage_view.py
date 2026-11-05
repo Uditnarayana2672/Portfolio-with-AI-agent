@@ -11,6 +11,10 @@ from app.domain.repositories.media_asset_repository import MediaUsageRef
 
 def to_usage_reference_view(ref: MediaUsageRef) -> UsageReferenceView:
     # 'project' → projects admin; 'blog'/'og' both live under a blog post.
+    if ref.kind == "portfolio":
+        return UsageReferenceView(
+            kind=ref.kind, id=str(ref.entity_id), title=ref.title, location=ref.location, url="/dashboard",
+        )
     base = "/admin/projects" if ref.kind == "project" else "/admin/blogs"
     return UsageReferenceView(
         kind=ref.kind,

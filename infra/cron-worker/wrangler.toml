@@ -1,0 +1,9 @@
+name = "portfolio-cron"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+[triggers]
+crons = ["*/10 * * * *"]
+
+# API_BASE_URL: `wrangler secret put API_BASE_URL`
+# BLOG_CRON_SECRET: `wrangler secret put BLOG_CRON_SECRET`

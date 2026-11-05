@@ -13,6 +13,9 @@ import uuid
 from collections.abc import Callable
 
 from app.application.dtos.media import (
+    OG_IMAGE_EXPECTED_HEIGHT,
+    OG_IMAGE_EXPECTED_WIDTH,
+    OG_IMAGE_FOLDER,
     UPLOAD_RETRY_BACKOFF,
     UploadedAssetView,
     UploadMediaResult,
@@ -53,11 +56,14 @@ class MediaStore:
         alt_text: str | None,
         uploaded_by: uuid.UUID,
         file_hash: str,
+        skip_dedup: bool = False,
     ) -> UploadMediaResult:
-        # De-duplicate by content hash: identical bytes are never re-uploaded.
-        existing = self._repo.find_by_hash(file_hash)
-        if existing is not None:
-            return UploadMediaResult(duplicate=True, asset=self._to_view(existing))
+        # De-duplicate by content hash unless the caller opts out (upload
+        # endpoint always passes skip_dedup=True per spec edge-case-8).
+        if not skip_dedup:
+            existing = self._repo.find_by_hash(file_hash)
+            if existing is not None:
+                return UploadMediaResult(duplicate=True, asset=self._to_view(existing))
 
         folder = folder.strip().strip("/")
         stem = self._slug(self._strip_extension(base_name)) or "file"
@@ -71,6 +77,18 @@ class MediaStore:
         result = self._upload_with_retry(
             content=content, folder=folder, public_id=final_stem
         )
+
+        # Edge case 9: OG images with wrong dimensions get a non-blocking warning.
+        warnings: list[str] = []
+        if folder == OG_IMAGE_FOLDER:
+            w = result.get("width") or 0
+            h = result.get("height") or 0
+            if w != OG_IMAGE_EXPECTED_WIDTH or h != OG_IMAGE_EXPECTED_HEIGHT:
+                warnings.append(
+                    f"og_image dimensions should be "
+                    f"{OG_IMAGE_EXPECTED_WIDTH}×{OG_IMAGE_EXPECTED_HEIGHT} "
+                    f"for best social card display — got {w}×{h}"
+                )
 
         new = NewMediaAsset(
             cloudinary_url=result.get("secure_url") or result.get("url"),
@@ -95,6 +113,7 @@ class MediaStore:
             asset=self._to_view(asset),
             renamed=renamed,
             rename_note=rename_note,
+            warnings=warnings,
         )
 
     # ── Remote video registration (no bytes; e.g. YouTube) ──────────────────
@@ -213,6 +232,7 @@ class MediaStore:
             file_hash=asset.file_hash,
             uploaded_by=asset.uploaded_by,
             created_at=asset.created_at,
+            updated_at=asset.updated_at,
             source_type=asset.source_type,
             external_id=asset.external_id,
             thumbnail_url=asset.thumbnail_url,

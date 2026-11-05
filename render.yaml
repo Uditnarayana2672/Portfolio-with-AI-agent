@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: portfolio-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - { key: ENVIRONMENT, value: production }
+      - { key: DEBUG, value: "false" }
+      - { key: SITE_URL, value: https://lighthouseinfo.com }
+      - { key: PORTFOLIO_SITE_URL, value: https://uditworks.com }
+      # Enter these in the Render dashboard. They are never stored in the repo.
+      - { key: DATABASE_URL, sync: false }
+      - { key: DIRECT_URL, sync: false }
+      - { key: SUPABASE_URL, sync: false }
+      - { key: SUPABASE_ANON_KEY, sync: false }
+      - { key: CLOUDINARY_URL, sync: false }
+      - { key: CLOUDINARY_CLOUD_NAME, sync: false }
+      - { key: CLOUDINARY_API_KEY, sync: false }
+      - { key: CLOUDINARY_API_SECRET, sync: false }
+      - { key: YOUTUBE_API_KEY, sync: false }
+      - { key: BLOG_CRON_SECRET, sync: false }
+      - { key: RESEND_API_KEY, sync: false }
+      - { key: EMAIL_FROM, sync: false }
+      - { key: CONTACT_NOTIFY_EMAIL, sync: false }
+      - { key: TURNSTILE_SECRET_KEY, sync: false }
+      - { key: DEPLOY_HOOK_PORTFOLIO, sync: false }
+      - { key: DEPLOY_HOOK_LIGHTHOUSE, sync: false }
+      - { key: CORS_ALLOWED_ORIGINS, sync: false }

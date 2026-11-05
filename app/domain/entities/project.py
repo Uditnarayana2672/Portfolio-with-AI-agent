@@ -27,6 +27,7 @@ class Project:
     is_featured: bool
     views: int
     seo: dict
+    meta: dict
     author_id: uuid.UUID
     published_at: datetime.datetime | None
     created_at: datetime.datetime

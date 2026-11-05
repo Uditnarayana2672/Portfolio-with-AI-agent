@@ -100,9 +100,9 @@ class CloudinaryImageStorage(ImageStorage):
         )
         return url
 
-    def delete(self, public_id: str) -> dict[str, Any]:
+    def delete(self, public_id: str, *, resource_type: str = "image") -> dict[str, Any]:
         try:
-            return cloudinary.uploader.destroy(public_id)
+            return cloudinary.uploader.destroy(public_id, resource_type=resource_type)
         except CloudinaryError as exc:
             raise StorageError(str(exc), request_id=self._request_id(exc)) from exc
 

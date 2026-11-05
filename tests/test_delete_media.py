@@ -75,7 +75,7 @@ def test_execute_by_public_id_keeps_cloudinary_delete_behavior() -> None:
 
     repo.find_by_public_id.assert_called_once_with("portfolio/example")
     repo.find_usage.assert_called_once_with("portfolio/example")
-    storage.delete.assert_called_once_with("portfolio/example")
+    storage.delete.assert_called_once_with("portfolio/example", resource_type="image")
     repo.delete.assert_called_once_with(asset.id)
 
 

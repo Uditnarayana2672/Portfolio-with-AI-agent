@@ -7,30 +7,56 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Any
+
+from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError as PydanticValidationError
 
 from app.api.v1.dependencies.auth import get_current_admin
-from app.api.v1.dependencies.providers import get_add_block, get_create_project, get_delete_block, get_delete_project, get_get_project, get_update_project
+from app.api.v1.dependencies.providers import get_add_block, get_bulk_action, get_check_slug_availability, get_create_project, get_delete_block, get_delete_project, get_duplicate_project, get_get_project, get_get_status_counts, get_list_projects, get_publish_project, get_reorder_blocks, get_toggle_feature, get_update_block, get_update_project
 from app.api.v1.schemas.block_config import BLOCK_CONFIG_MODELS
 from app.api.v1.schemas.project import (
     AddBlockRequest,
     BlockResponse,
+    BulkActionRequest,
+    BulkActionResponse,
     CreateProjectRequest,
     CreateProjectResponse,
+    DuplicateProjectRequest,
+    DuplicateProjectResponse,
     GetProjectResponse,
+    ListProjectsResponse,
+    ProjectStatusCountsResponse,
+    ProjectSummaryResponse,
+    PublishProjectResponse,
+    ReorderBlocksRequest,
+    ReorderBlocksResponse,
     SeoResponse,
+    SlugCheckResponse,
+    ToggleFeatureRequest,
+    ToggleFeatureResponse,
+    UpdateBlockRequest,
     UpdateProjectRequest,
     UpdateProjectResponse,
 )
-from app.application.dtos.project import AddBlockCommand, CreateProjectCommand, SeoInput, UpdateProjectCommand
+from app.application.dtos.project import MAX_FEATURED_PROJECTS, ALLOWED_SORT_BY, AddBlockCommand, BulkActionCommand, CheckSlugCommand, CreateProjectCommand, DuplicateProjectCommand, ListProjectsCommand, PublishProjectCommand, ReorderBlocksCommand, SeoInput, ToggleFeatureCommand, UpdateBlockCommand, UpdateProjectCommand
 from app.application.use_cases.projects.add_block import AddBlock
+from app.application.use_cases.projects.bulk_action import BulkAction
+from app.application.use_cases.projects.list_projects import ListProjects
+from app.application.use_cases.projects.publish_project import PublishProject
+from app.application.use_cases.projects.check_slug_availability import CheckSlugAvailability
 from app.application.use_cases.projects.create_project import CreateProject
+from app.application.use_cases.projects.duplicate_project import DuplicateProject
 from app.application.use_cases.projects.delete_block import DeleteBlock
 from app.application.use_cases.projects.delete_project import DeleteProject
 from app.application.use_cases.projects.get_project import GetProject
+from app.application.use_cases.projects.get_status_counts import GetStatusCounts
+from app.application.use_cases.projects.reorder_blocks import ReorderBlocks
+from app.application.use_cases.projects.toggle_feature import ToggleFeature
+from app.application.use_cases.projects.update_block import UpdateBlock
 from app.application.use_cases.projects.update_project import UpdateProject
-from app.domain.exceptions import CodeTooLongError, NotFoundError, PermissionError, SlugTakenError, ValidationError
+from app.domain.exceptions import BlockReorderError, BulkPermissionError, CodeTooLongError, ConflictError, NotFoundError, PermissionError, PublishBlockedError, SlugTakenError, ValidationError
 from app.infrastructure.persistence.orm.models import Users
 
 router = APIRouter(prefix="/admin/projects", tags=["Projects"])
@@ -71,6 +97,7 @@ def create_project(
             og_image_url=body.seo.og_image_url,
             canonical_url=body.seo.canonical_url,
         ),
+        meta=dict(body.meta or {}),
     )
 
     try:
@@ -101,11 +128,325 @@ def create_project(
             og_image_url=result.seo.get("og_image_url"),
             canonical_url=result.seo.get("canonical_url"),
         ),
+        meta=result.meta,
         blocks=[],
         author_id=result.author_id,
         published_at=result.published_at,
         created_at=result.created_at,
         updated_at=result.updated_at,
+    )
+
+
+@router.get(
+    "",
+    status_code=status.HTTP_200_OK,
+    response_model=ListProjectsResponse,
+    summary="List projects",
+    description=(
+        "Return a paginated list of the current admin's projects. "
+        "Optionally filter by `status` (draft | published | archived), "
+        "`template_id`, and/or `search` (case-insensitive substring match on title). "
+        "`sort_by` accepts: title | created_at | updated_at | views | status. "
+        "`sort_dir` is asc or desc (default desc). "
+        "`page_size` is capped at 100. "
+        "Each item includes `reactions_count` from the reactions table."
+    ),
+)
+def list_projects(
+    status_filter: str | None = None,
+    search: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    template_id: str | None = None,
+    sort_by: str = "created_at",
+    sort_dir: str = "desc",
+    current_admin: Users = Depends(get_current_admin),
+    use_case: ListProjects = Depends(get_list_projects),
+) -> ListProjectsResponse:
+    if sort_by not in ALLOWED_SORT_BY:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": f"sort_by must be one of: {sorted(ALLOWED_SORT_BY)}"},
+        )
+    if sort_dir.lower() not in ("asc", "desc"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": "sort_dir must be 'asc' or 'desc'"},
+        )
+
+    cmd = ListProjectsCommand(
+        author_id=current_admin.id,
+        status=status_filter,
+        search=search,
+        page=page,
+        page_size=page_size,
+        template_id=template_id,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
+
+    try:
+        result = use_case.execute(cmd)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": str(exc)},
+        ) from exc
+
+    return ListProjectsResponse(
+        items=[
+            ProjectSummaryResponse(
+                id=item.id,
+                title=item.title,
+                slug=item.slug,
+                excerpt=item.excerpt,
+                thumbnail_url=item.thumbnail_url,
+                template_id=item.template_id,
+                status=item.status,
+                is_featured=item.is_featured,
+                views=item.views,
+                reactions_count=item.reactions_count,
+                tech_stack=item.tech_stack,
+                github_url=item.github_url,
+                demo_url=item.demo_url,
+                published_at=item.published_at,
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+            )
+            for item in result.items
+        ],
+        total=result.total,
+        page=result.page,
+        page_size=result.page_size,
+    )
+
+
+# IMPORTANT: registered before /{project_id} — "status-counts" would otherwise
+# be parsed as a UUID and return 422.
+@router.get(
+    "/status-counts",
+    status_code=status.HTTP_200_OK,
+    response_model=ProjectStatusCountsResponse,
+    summary="Get per-status project counts",
+    description=(
+        "Return a count of projects per status (draft / published / archived) "
+        "for the current admin in a single DB query. Powers the filter pill numbers "
+        "at the top of the Project Manager table."
+    ),
+)
+def get_status_counts(
+    current_admin: Users = Depends(get_current_admin),
+    use_case: GetStatusCounts = Depends(get_get_status_counts),
+) -> ProjectStatusCountsResponse:
+    result = use_case.execute(current_admin.id)
+    return ProjectStatusCountsResponse(
+        total=result.total,
+        draft=result.draft,
+        published=result.published,
+        archived=result.archived,
+    )
+
+
+# IMPORTANT: registered before /{project_id}/... routes — "bulk" would otherwise
+# be parsed as a UUID and return 422.
+@router.post(
+    "/bulk",
+    status_code=status.HTTP_200_OK,
+    response_model=BulkActionResponse,
+    summary="Bulk action on multiple projects",
+    description=(
+        "Execute one action (publish / archive / feature / unfeature / delete) "
+        "across multiple projects atomically. All project IDs must belong to the "
+        "authenticated admin — any foreign ID returns 403 and aborts the operation. "
+        "Max 100 IDs per request."
+    ),
+)
+def bulk_action(
+    body: BulkActionRequest,
+    current_admin: Users = Depends(get_current_admin),
+    use_case: BulkAction = Depends(get_bulk_action),
+) -> BulkActionResponse:
+    cmd = BulkActionCommand(
+        author_id=current_admin.id,
+        action=body.action,
+        project_ids=list(body.project_ids),
+    )
+
+    try:
+        result = use_case.execute(cmd)
+    except BulkPermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "FORBIDDEN",
+                "message": str(exc),
+                "detail": {"foreign_ids": [str(fid) for fid in exc.foreign_ids]},
+            },
+        ) from exc
+    except ConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "FEATURED_LIMIT_REACHED", "message": str(exc)},
+        ) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": str(exc)},
+        ) from exc
+
+    return BulkActionResponse(
+        action=result.action,
+        requested=result.requested,
+        succeeded=result.succeeded,
+        failed=result.failed,
+        skipped=result.skipped,
+        project_ids=result.project_ids,
+    )
+
+
+@router.post(
+    "/{project_id}/duplicate",
+    status_code=status.HTTP_201_CREATED,
+    response_model=DuplicateProjectResponse,
+    summary="Duplicate a project",
+    description=(
+        "Create a complete copy of an existing project, including all its content blocks. "
+        "The duplicate is always created as a **draft** with `views` reset to `0`, "
+        "`is_featured` set to `false`, `published_at` set to `null`, and "
+        "`seo.canonical_url` cleared to avoid duplicate canonical conflicts. "
+        "If `new_title` is omitted the title defaults to `'{original} (copy)'`. "
+        "If `new_slug` is omitted it is auto-generated from the new title with a "
+        "numeric suffix on collision. "
+        "If `new_slug` is provided but already taken, the request fails with `409 SLUG_TAKEN`."
+    ),
+)
+def duplicate_project(
+    project_id: uuid.UUID,
+    body: DuplicateProjectRequest,
+    current_admin: Users = Depends(get_current_admin),
+    use_case: DuplicateProject = Depends(get_duplicate_project),
+) -> DuplicateProjectResponse:
+    cmd = DuplicateProjectCommand(
+        source_id=project_id,
+        author_id=current_admin.id,
+        new_title=body.new_title,
+        new_slug=body.new_slug,
+    )
+
+    try:
+        result = use_case.execute(cmd)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "PROJECT_NOT_FOUND", "message": str(exc)},
+        ) from exc
+    except SlugTakenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "SLUG_TAKEN",
+                "message": str(exc),
+                "detail": {"suggested": exc.suggested},
+            },
+        ) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": str(exc)},
+        ) from exc
+
+    p = result.new_project
+    return DuplicateProjectResponse(
+        original_id=result.original_id,
+        new_project=GetProjectResponse(
+            id=p.id,
+            title=p.title,
+            slug=p.slug,
+            excerpt=p.excerpt,
+            thumbnail_url=p.thumbnail_url,
+            tech_stack=p.tech_stack,
+            template_id=p.template_id,
+            github_url=p.github_url,
+            demo_url=p.demo_url,
+            status=p.status,
+            visibility=p.visibility,
+            is_featured=p.is_featured,
+            views=p.views,
+            seo=SeoResponse(
+                meta_title=p.seo.get("meta_title"),
+                meta_description=p.seo.get("meta_description"),
+                og_image_url=p.seo.get("og_image_url"),
+                canonical_url=p.seo.get("canonical_url"),
+            ),
+            meta=p.meta,
+            blocks=[
+                BlockResponse(
+                    id=b.id,
+                    project_id=b.project_id,
+                    block_type=b.block_type,
+                    position=b.position,
+                    config=b.config,
+                    created_at=b.created_at,
+                    updated_at=b.updated_at,
+                )
+                for b in p.blocks
+            ],
+            author_id=p.author_id,
+            published_at=p.published_at,
+            created_at=p.created_at,
+            updated_at=p.updated_at,
+        ),
+    )
+
+
+@router.post(
+    "/{project_id}/publish",
+    status_code=status.HTTP_200_OK,
+    response_model=PublishProjectResponse,
+    summary="Publish a project",
+    description=(
+        "Transition a project from `draft` to `published`. "
+        "Validates that the project has a title, at least one content block, "
+        "and a meta title for SEO before publishing. "
+        "Returns `422 PUBLISH_BLOCKED` with a list of all issues if validation fails. "
+        "Calling this on an already-published project is a 200 no-op."
+    ),
+)
+def publish_project(
+    project_id: uuid.UUID,
+    current_admin: Users = Depends(get_current_admin),
+    use_case: PublishProject = Depends(get_publish_project),
+) -> PublishProjectResponse | JSONResponse:
+    cmd = PublishProjectCommand(project_id=project_id, author_id=current_admin.id)
+
+    try:
+        result = use_case.execute(cmd)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "PROJECT_NOT_FOUND", "message": str(exc)},
+        ) from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "FORBIDDEN", "message": str(exc)},
+        ) from exc
+    except PublishBlockedError as exc:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "detail": exc.issues[0],
+                "code": "PUBLISH_BLOCKED",
+                "issues": exc.issues,
+            },
+        )
+
+    return PublishProjectResponse(
+        id=result.id,
+        slug=result.slug,
+        status=result.status,
+        published_at=result.published_at,
+        url=f"/projects/{result.slug}",
     )
 
 
@@ -193,6 +534,70 @@ def add_block(
         created_at=result.created_at,
         updated_at=result.updated_at,
     )
+
+
+@router.patch(
+    "/{project_id}/feature",
+    status_code=status.HTTP_200_OK,
+    response_model=ToggleFeatureResponse,
+    summary="Toggle a project's featured flag",
+    description=(
+        "Mark a project as featured (or not) on the public homepage. "
+        "A dedicated endpoint so the toggle can fire from a list view without "
+        "the full project payload. `is_featured` must be a real JSON boolean — "
+        "the string `\"true\"` is rejected. Setting the flag to a value it "
+        "already holds is a 200 no-op. At most "
+        f"{MAX_FEATURED_PROJECTS} projects may be featured at once; "
+        "exceeding that returns 409."
+    ),
+)
+def toggle_feature(
+    project_id: uuid.UUID,
+    payload: dict[str, Any] = Body(...),
+    current_admin: Users = Depends(get_current_admin),
+    use_case: ToggleFeature = Depends(get_toggle_feature),
+) -> ToggleFeatureResponse:
+    # Parse manually (rather than binding ToggleFeatureRequest directly) so the
+    # error shape matches the API contract: {"error": ..., "message": ...}.
+    try:
+        body = ToggleFeatureRequest.model_validate(payload)
+    except PydanticValidationError as exc:
+        first = exc.errors()[0]
+        message = (
+            "is_featured is required"
+            if first.get("type") == "missing"
+            else "is_featured must be a boolean"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": message},
+        ) from exc
+
+    cmd = ToggleFeatureCommand(
+        project_id=project_id,
+        requester_id=current_admin.id,
+        is_featured=body.is_featured,
+    )
+
+    try:
+        result = use_case.execute(cmd)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "PROJECT_NOT_FOUND", "message": "Project not found"},
+        ) from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "FORBIDDEN", "message": str(exc)},
+        ) from exc
+    except ConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"error": "FEATURED_LIMIT_REACHED", "message": str(exc)},
+        ) from exc
+
+    return ToggleFeatureResponse(id=result.id, is_featured=result.is_featured)
 
 
 @router.delete(
@@ -305,6 +710,7 @@ def update_project(
             og_image_url=result.seo.get("og_image_url"),
             canonical_url=result.seo.get("canonical_url"),
         ),
+        meta=result.meta,
         blocks=[
             BlockResponse(
                 id=b.id,
@@ -323,6 +729,54 @@ def update_project(
         updated_at=result.updated_at,
         warnings=result.warnings,
     )
+
+
+# IMPORTANT: this route MUST be registered before /{project_id}/blocks/{block_id}.
+# FastAPI matches routes in declaration order; registering /reorder after /{block_id}
+# causes FastAPI to try to parse the literal string "reorder" as a UUID and return 422.
+@router.patch(
+    "/{project_id}/blocks/reorder",
+    status_code=status.HTTP_200_OK,
+    response_model=ReorderBlocksResponse,
+    summary="Reorder all blocks on a project",
+    description=(
+        "Reorder every content block on a project page by supplying the complete "
+        "ordered array of block UUIDs. The server assigns position 0, 1, 2 … in "
+        "the order they appear in `block_ids`. The array **must** contain every "
+        "block UUID for this project — subsets are rejected with 400."
+    ),
+)
+def reorder_blocks(
+    project_id: uuid.UUID,
+    body: ReorderBlocksRequest,
+    current_admin: Users = Depends(get_current_admin),
+    use_case: ReorderBlocks = Depends(get_reorder_blocks),
+) -> ReorderBlocksResponse:
+    cmd = ReorderBlocksCommand(
+        project_id=project_id,
+        requester_id=current_admin.id,
+        block_ids=list(body.block_ids),
+    )
+
+    try:
+        result = use_case.execute(cmd)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "PROJECT_NOT_FOUND", "message": str(exc)},
+        ) from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "FORBIDDEN", "message": str(exc)},
+        ) from exc
+    except BlockReorderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": exc.error_code, "message": str(exc)},
+        ) from exc
+
+    return ReorderBlocksResponse(success=True, block_count=result.block_count)
 
 
 @router.delete(
@@ -347,13 +801,125 @@ def delete_block(
     except NotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "BLOCK_NOT_FOUND", "message": str(exc)},
+            detail={"error": "BLOCK_NOT_FOUND", "message": "Block not found on this project"},
         ) from exc
     except PermissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"error": "FORBIDDEN", "message": str(exc)},
         ) from exc
+
+
+@router.put(
+    "/{project_id}/blocks/{block_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=BlockResponse,
+    summary="Update a block",
+    description=(
+        "Update an existing block's `config` and/or `position`. Both fields are "
+        "optional — send only what changed. `block_type` is immutable and is "
+        "silently ignored if present. The incoming `config` is shallow-merged "
+        "onto the stored config (so a partial update never wipes untouched "
+        "keys) and re-validated against the block's type before saving; an "
+        "empty `config` `{}` is a valid no-op. A block on a different project "
+        "is reported as `404 BLOCK_NOT_FOUND` (its existence is never leaked)."
+    ),
+)
+def update_block(
+    project_id: uuid.UUID,
+    block_id: uuid.UUID,
+    body: UpdateBlockRequest,
+    current_admin: Users = Depends(get_current_admin),
+    use_case: UpdateBlock = Depends(get_update_block),
+) -> BlockResponse:
+    cmd = UpdateBlockCommand(
+        project_id=project_id,
+        block_id=block_id,
+        requester_id=current_admin.id,
+        position=body.position,
+        config=body.config,
+    )
+
+    try:
+        result = use_case.execute(cmd)
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "BLOCK_NOT_FOUND", "message": str(exc)},
+        ) from exc
+    except CodeTooLongError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "CODE_TOO_LONG", "message": str(exc)},
+        ) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"error": "VALIDATION_ERROR", "message": str(exc)},
+        ) from exc
+
+    return BlockResponse(
+        id=result.id,
+        project_id=result.project_id,
+        block_type=result.block_type,
+        position=result.position,
+        config=result.config,
+        created_at=result.created_at,
+        updated_at=result.updated_at,
+    )
+
+
+# IMPORTANT: this route MUST be registered before /{project_id}.
+# FastAPI matches routes in declaration order; registering /slug-check after
+# /{project_id} causes FastAPI to parse "slug-check" as a UUID and return 422.
+@router.get(
+    "/slug-check",
+    status_code=status.HTTP_200_OK,
+    response_model=SlugCheckResponse,
+    summary="Check slug availability",
+    description=(
+        "Checks whether a given slug is available before the user saves the project. "
+        "The slug is normalized (lowercase, spaces→hyphens, special chars stripped) before "
+        "the DB check; the normalized form is returned in the response. "
+        "Pass `exclude_id` when editing an existing project so its own current slug is "
+        "not reported as taken. Reserved slugs (`admin`, `api`, `auth`, `health`, `login`, "
+        "`logout`, `me`, `settings`) are never available regardless of DB state."
+    ),
+)
+def check_slug_availability(
+    slug: str | None = None,
+    exclude_id: str | None = None,
+    _: Users = Depends(get_current_admin),
+    use_case: CheckSlugAvailability = Depends(get_check_slug_availability),
+) -> SlugCheckResponse:
+    if not slug:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "MISSING_PARAM", "message": "slug query parameter is required"},
+        )
+
+    parsed_exclude_id: uuid.UUID | None = None
+    if exclude_id:
+        try:
+            parsed_exclude_id = uuid.UUID(exclude_id)
+        except ValueError:
+            parsed_exclude_id = None
+
+    cmd = CheckSlugCommand(slug=slug, exclude_id=parsed_exclude_id)
+
+    try:
+        result = use_case.execute(cmd)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "INVALID_SLUG", "message": str(exc)},
+        ) from exc
+
+    return SlugCheckResponse(
+        slug=result.slug,
+        available=result.available,
+        suggested=result.suggested,
+    )
 
 
 @router.get(
@@ -407,6 +973,7 @@ def get_project(
             og_image_url=result.seo.get("og_image_url"),
             canonical_url=result.seo.get("canonical_url"),
         ),
+        meta=result.meta,
         blocks=[
             BlockResponse(
                 id=b.id,

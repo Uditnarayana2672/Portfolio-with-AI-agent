@@ -5,7 +5,7 @@ import enum
 import uuid
 
 from pgvector.sqlalchemy.vector import VECTOR
-from sqlalchemy import ARRAY, Boolean, CHAR, CheckConstraint, DateTime, Double, Enum, ForeignKeyConstraint, Index, Integer, Numeric, PrimaryKeyConstraint, Text, UniqueConstraint, Uuid, text
+from sqlalchemy import ARRAY, Boolean, CHAR, CheckConstraint, DateTime, Double, Enum, ForeignKeyConstraint, Index, Integer, Numeric, PrimaryKeyConstraint, SmallInteger, Text, UniqueConstraint, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,6 +31,13 @@ class ActivityType(str, enum.Enum):
     JERRY_ESCALATION = 'jerry_escalation'
     JERRY_BOOKING = 'jerry_booking'
     AI_SUGGESTION_ACCEPTED = 'ai_suggestion_accepted'
+    BLOG_SCHEDULED = 'blog_scheduled'
+    BLOG_UNSCHEDULED = 'blog_unscheduled'
+    BLOG_UNPUBLISHED = 'blog_unpublished'
+    BLOG_CHANGES_DISCARDED = 'blog_changes_discarded'
+    BLOG_REVISION_RESTORED = 'blog_revision_restored'
+    BLOG_SCHEDULE_FAILED = 'blog_schedule_failed'
+    PORTFOLIO_UPDATED = 'portfolio_updated'
 
 
 class BlogStatus(str, enum.Enum):
@@ -38,6 +45,7 @@ class BlogStatus(str, enum.Enum):
     REVIEW = 'review'
     PUBLISHED = 'published'
     ARCHIVED = 'archived'
+    SCHEDULED = 'scheduled'
 
 
 class ContentType(str, enum.Enum):
@@ -92,6 +100,7 @@ class ResourceType(str, enum.Enum):
 class SubscriberStatus(str, enum.Enum):
     ACTIVE = 'active'
     UNSUBSCRIBED = 'unsubscribed'
+    PENDING = 'pending'
     BOUNCED = 'bounced'
 
 
@@ -138,6 +147,7 @@ class BlogCategories(Base):
     slug: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
     description: Mapped[Optional[str]] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('0'))
 
     blog_posts: Mapped[list['BlogPosts']] = relationship('BlogPosts', back_populates='category')
 
@@ -245,6 +255,9 @@ class NewsletterSubscribers(Base):
     name: Mapped[Optional[str]] = mapped_column(Text)
     unsubscribe_token: Mapped[Optional[str]] = mapped_column(Text, server_default=text("encode(gen_random_bytes(32), 'hex'::text)"))
     unsubscribed_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+    confirm_token: Mapped[Optional[str]] = mapped_column(Text)
+    confirm_expires_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+    confirmed_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
 
 
 class PageViews(Base):
@@ -279,6 +292,7 @@ class Polls(Base):
     assigned_to_type: Mapped[Optional[ContentType]] = mapped_column(Enum(ContentType, values_callable=lambda cls: [member.value for member in cls], name='content_type'))
     assigned_to_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     expires_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+    block_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
 
     poll_votes: Mapped[list['PollVotes']] = relationship('PollVotes', back_populates='poll')
 
@@ -312,6 +326,40 @@ class Users(Base):
     projects: Mapped[list['Projects']] = relationship('Projects', back_populates='author')
     reactions: Mapped[list['Reactions']] = relationship('Reactions', back_populates='user')
     comments: Mapped[list['Comments']] = relationship('Comments', back_populates='user')
+
+
+class NewsletterSends(Base):
+    __tablename__ = 'newsletter_sends'
+
+    post_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    recipients: Mapped[int] = mapped_column(Integer, nullable=False)
+    sent_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
+
+
+class SiteBuilds(Base):
+    __tablename__ = 'site_builds'
+
+    site: Mapped[str] = mapped_column(Text, primary_key=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
+    dirty_since: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+    trigger_after: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+    last_triggered_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+
+
+class PortfolioContent(Base):
+    __tablename__ = 'portfolio_content'
+    __table_args__ = (
+        CheckConstraint('id = 1', name='portfolio_content_id_check'),
+        ForeignKeyConstraint(['updated_by'], ['users.id'], ondelete='SET NULL', name='portfolio_content_updated_by_fkey'),
+        PrimaryKeyConstraint('id', name='portfolio_content_pkey'),
+    )
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, server_default=text('1'))
+    content: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
+    updated_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
 
 
 class ActivityLog(Base):
@@ -414,10 +462,64 @@ class BlogPosts(Base):
     read_time: Mapped[Optional[int]] = mapped_column(Integer)
     scheduled_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
     published_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+    # ── blog editor (migration 005_blog_editor_schema) ──
+    subtitle: Mapped[Optional[str]] = mapped_column(Text)
+    slug_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
+    content_html: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''::text"))
+    content_text: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''::text"))
+    content_schema_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    content_hash: Mapped[Optional[str]] = mapped_column(Text)
+    word_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('0'))
+    block_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('0'))
+    cover_asset_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    og_asset_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
+    published_revision_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    last_published_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+    schedule_error: Mapped[Optional[str]] = mapped_column(Text)
+    # ── blog manager (migration 006_blog_manager) ──
+    # search_vector (generated tsvector) is deliberately not mapped: it is never
+    # written, and only the list query reads it.
+    archived_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
 
     author: Mapped['Users'] = relationship('Users', back_populates='blog_posts')
     category: Mapped[Optional['BlogCategories']] = relationship('BlogCategories', back_populates='blog_posts')
     comments: Mapped[list['Comments']] = relationship('Comments', back_populates='blog')
+
+
+class BlogPostRevisions(Base):
+    __tablename__ = 'blog_post_revisions'
+    __table_args__ = (
+        CheckConstraint("kind = ANY (ARRAY['publish'::text, 'manual'::text, 'restore'::text])", name='blog_post_revisions_kind_check'),
+        ForeignKeyConstraint(['post_id'], ['blog_posts.id'], ondelete='CASCADE', name='blog_post_revisions_post_id_fkey'),
+        ForeignKeyConstraint(['created_by'], ['users.id'], name='blog_post_revisions_created_by_fkey'),
+        PrimaryKeyConstraint('id', name='blog_post_revisions_pkey'),
+        Index('idx_blog_revisions_post', 'post_id', text('created_at DESC')),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
+    post_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    content_html: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    word_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('0'))
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
+    label: Mapped[Optional[str]] = mapped_column(Text)
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+
+
+class BlogSlugRedirects(Base):
+    __tablename__ = 'blog_slug_redirects'
+    __table_args__ = (
+        ForeignKeyConstraint(['post_id'], ['blog_posts.id'], ondelete='CASCADE', name='blog_slug_redirects_post_id_fkey'),
+        PrimaryKeyConstraint('old_slug', name='blog_slug_redirects_pkey'),
+        Index('idx_blog_slug_redirects_post', 'post_id'),
+    )
+
+    old_slug: Mapped[str] = mapped_column(Text, primary_key=True)
+    post_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
 
 
 class FeedbackSubmissions(Base):
@@ -554,7 +656,7 @@ class PollVotes(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))
     poll_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
-    option_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    option_index: Mapped[int] = mapped_column(Integer, nullable=False)
     voted_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     session_id: Mapped[Optional[str]] = mapped_column(Text)
@@ -587,6 +689,10 @@ class Projects(Base):
     is_featured: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('false'))
     views: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('0'))
     seo: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # Editorial page-header metadata for the public detail page (role,
+    # timeline_label, status_label, recognition, category/kicker, hero_caption…).
+    # Free-form JSON authored by the admin — see migration 003.
+    meta: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     author_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(True), nullable=False, server_default=text('now()'))

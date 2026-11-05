@@ -17,12 +17,30 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
+
+from app.application.interfaces.block_config_validator import BlockConfigValidator
+from app.domain.exceptions import ValidationError
+
+
+class SectionHeaderMixin(BaseModel):
+    """Optional editorial header shown above a content block on the public page.
+
+    The public renderer draws an eyebrow (small kicker, auto-numbered), an h2
+    heading, and an optional subheading. All optional — a block with none of
+    these renders flush, exactly as before. Hero and CTA blocks own their own
+    headings and intentionally do NOT use this mixin.
+    """
+    eyebrow: str | None = None
+    heading: str | None = None
+    subheading: str | None = None
 
 
 class HeroConfig(BaseModel):
     heading: str = Field(..., min_length=1)
     subheading: str | None = None
+    caption: str | None = None
+    alt_text: str | None = None
     background_image_url: str | None = None
     background_color: str | None = None
     overlay_opacity: float = Field(0.5, ge=0.0, le=1.0)
@@ -34,12 +52,14 @@ class HeroConfig(BaseModel):
     min_height: str | None = None
 
 
-class TextConfig(BaseModel):
+class TextConfig(SectionHeaderMixin):
     content: str
     max_width: str = "default"
+    # Public writing-style variant: standard | dropcap | lead | twocol
+    style: Literal["standard", "dropcap", "lead", "twocol"] = "standard"
 
 
-class ImageConfig(BaseModel):
+class ImageConfig(SectionHeaderMixin):
     image_url: str = Field(..., min_length=1)
     alt_text: str | None = None
     caption: str | None = None
@@ -47,6 +67,8 @@ class ImageConfig(BaseModel):
     align: Literal["left", "center", "right"] = "center"
     link_url: str | None = None
     rounded: bool = False
+    # Public treatment: auto picks by context, natural keeps true colour, blend tints.
+    display: Literal["auto", "natural", "blend"] = "auto"
 
 
 class GalleryImage(BaseModel):
@@ -55,7 +77,7 @@ class GalleryImage(BaseModel):
     caption: str | None = None
 
 
-class GalleryConfig(BaseModel):
+class GalleryConfig(SectionHeaderMixin):
     # An empty gallery is a valid starting state; images are added later.
     images: list[GalleryImage] = Field(default_factory=list)
     layout: str = "grid"
@@ -64,7 +86,7 @@ class GalleryConfig(BaseModel):
     show_captions: bool = True
 
 
-class VideoConfig(BaseModel):
+class VideoConfig(SectionHeaderMixin):
     video_url: str = Field(..., min_length=1)
     provider: str | None = None
     thumbnail_url: str | None = None
@@ -76,7 +98,7 @@ class VideoConfig(BaseModel):
     width: str = "full"
 
 
-class CodeConfig(BaseModel):
+class CodeConfig(SectionHeaderMixin):
     code: str
     language: str = "plaintext"
     filename: str | None = None
@@ -91,9 +113,11 @@ class TimelineItem(BaseModel):
     description: str | None = None
     icon: str | None = None
     color: str | None = None
+    # Filled (done) vs hollow (upcoming) dot on the public timeline.
+    done: bool = False
 
 
-class TimelineConfig(BaseModel):
+class TimelineConfig(SectionHeaderMixin):
     items: list[TimelineItem] = Field(default_factory=list)
     direction: Literal["vertical", "horizontal"] = "vertical"
     show_connectors: bool = True
@@ -105,15 +129,17 @@ class StatMetric(BaseModel):
     unit: str | None = None
     icon: str | None = None
     color: str | None = None
+    # Small caption under the metric label (e.g. "p50 latency").
+    sub: str | None = None
 
 
-class StatsConfig(BaseModel):
+class StatsConfig(SectionHeaderMixin):
     metrics: list[StatMetric]
     columns: int = Field(3, ge=1, le=6)
     style: str = "card"
 
 
-class PollConfig(BaseModel):
+class PollConfig(SectionHeaderMixin):
     question: str = Field(..., min_length=1)
     # Option count limits (2–6) are enforced by the AddBlock use case.
     options: list[str]
@@ -122,7 +148,7 @@ class PollConfig(BaseModel):
     expiry_date: str | None = None
 
 
-class QuoteConfig(BaseModel):
+class QuoteConfig(SectionHeaderMixin):
     text: str = Field(..., min_length=1)
     attribution_name: str | None = None
     attribution_role: str | None = None
@@ -130,7 +156,7 @@ class QuoteConfig(BaseModel):
     source_url: str | None = None
 
 
-class ComparisonConfig(BaseModel):
+class ComparisonConfig(SectionHeaderMixin):
     left_label: str
     left_content: str
     right_label: str
@@ -158,6 +184,18 @@ class FormConfig(BaseModel):
     height: int = Field(480, ge=1)
 
 
+class EmbedConfig(SectionHeaderMixin):
+    """Generic third-party embed (CodeSandbox, CodePen, Figma, Replit, a live
+    demo iframe, …). Rendered in a framed "browser chrome" shell on the public
+    page."""
+    embed_url: str = Field(..., min_length=1)
+    provider: str | None = None  # e.g. "CodeSandbox", "Figma" — shown as a chip
+    source_label: str | None = None  # e.g. "codesandbox.io/s/…" — shown in the bar
+    caption: str | None = None
+    height: int = Field(480, ge=1, le=4000)
+    allow_fullscreen: bool = True
+
+
 # The builder always sends the canonical type name (e.g. "stats", never
 # "metrics"); anything not in this map is rejected with 422.
 BLOCK_CONFIG_MODELS: dict[str, type[BaseModel]] = {
@@ -174,4 +212,26 @@ BLOCK_CONFIG_MODELS: dict[str, type[BaseModel]] = {
     "comparison": ComparisonConfig,
     "cta": CtaConfig,
     "form": FormConfig,
+    "embed": EmbedConfig,
 }
+
+
+class PydanticBlockConfigValidator(BlockConfigValidator):
+    """Concrete ``BlockConfigValidator`` backed by ``BLOCK_CONFIG_MODELS``.
+
+    Used by UpdateBlock to re-validate a merged config. ``block_type`` always
+    comes from an already-persisted block, so it is one of the 13 supported
+    types; the unknown-type branch is purely defensive.
+    """
+
+    def validate(self, block_type: str, config: dict) -> dict:
+        model = BLOCK_CONFIG_MODELS.get(block_type)
+        if model is None:
+            raise ValidationError(f"block_type '{block_type}' is not supported")
+        try:
+            validated = model.model_validate(config)
+        except PydanticValidationError as exc:
+            raise ValidationError(
+                f"Invalid config for block type {block_type}"
+            ) from exc
+        return validated.model_dump()

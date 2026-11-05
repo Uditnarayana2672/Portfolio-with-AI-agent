@@ -44,6 +44,14 @@ class CreateProjectRequest(BaseModel):
     )
     is_featured: bool = Field(False, description="Pin to the featured section.")
     seo: SeoRequest = Field(default_factory=SeoRequest, description="SEO / OG meta overrides.")
+    meta: dict = Field(
+        default_factory=dict,
+        description=(
+            "Editorial page-header metadata for the public detail page "
+            "(e.g. role, timeline_label, status_label, recognition, category, "
+            "hero_caption). Free-form JSON."
+        ),
+    )
 
     @field_validator("title")
     @classmethod
@@ -112,6 +120,52 @@ class AddBlockRequest(BaseModel):
         return v
 
 
+class ToggleFeatureRequest(BaseModel):
+    # strict=True so the JSON string "true" / number 1 are rejected as 422
+    # rather than silently coerced to the boolean — only real JSON booleans pass.
+    is_featured: bool = Field(
+        ...,
+        strict=True,
+        description="Whether the project should be marked as featured on the homepage.",
+    )
+
+
+class UpdateBlockRequest(BaseModel):
+    # Both fields optional — send only what changed. `block_type` is deliberately
+    # absent: it is immutable, and Pydantic silently drops unknown keys, so a
+    # `block_type` in the body is discarded rather than rejected.
+    position: int | None = Field(
+        None,
+        ge=0,
+        description="New zero-based position. Omit to leave unchanged.",
+    )
+    config: dict | None = Field(
+        None,
+        description=(
+            "Partial config — merged onto the stored config, then re-validated "
+            "against the block's type. Omit to leave unchanged; `{}` is a no-op."
+        ),
+    )
+
+    @field_validator("config")
+    @classmethod
+    def config_not_too_large(cls, v: dict | None) -> dict | None:
+        if v is not None and len(json.dumps(v, separators=(",", ":"))) > _CONFIG_MAX_BYTES:
+            raise ValueError("config must not exceed 64 KB")
+        return v
+
+
+class ReorderBlocksRequest(BaseModel):
+    block_ids: list[uuid.UUID] = Field(
+        ...,
+        description=(
+            "Ordered array of every block UUID for this project. "
+            "The server assigns position 0, 1, 2 … in the order they appear here. "
+            "Must contain all block UUIDs — subsets are rejected."
+        ),
+    )
+
+
 class UpdateProjectRequest(BaseModel):
     title: str | None = None
     slug: str | None = None
@@ -125,9 +179,30 @@ class UpdateProjectRequest(BaseModel):
     visibility: str | None = None
     is_featured: bool | None = None
     seo: SeoRequest | None = None
+    meta: dict | None = None
+
+
+class DuplicateProjectRequest(BaseModel):
+    new_title: str | None = Field(
+        None,
+        description="Title for the duplicate. Defaults to '{original} (copy)' if omitted.",
+    )
+    new_slug: str | None = Field(
+        None,
+        description=(
+            "Slug for the duplicate. Auto-generated from the new title if omitted. "
+            "Returns 409 SLUG_TAKEN (with suggestion) if the provided slug is already in use."
+        ),
+    )
 
 
 # ── response shapes ────────────────────────────────────────────────────────────
+
+
+class SlugCheckResponse(BaseModel):
+    slug: str
+    available: bool
+    suggested: str | None
 
 
 class SeoResponse(BaseModel):
@@ -151,6 +226,16 @@ class BlockResponse(BaseModel):
         return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+class ReorderBlocksResponse(BaseModel):
+    success: bool
+    block_count: int
+
+
+class ToggleFeatureResponse(BaseModel):
+    id: uuid.UUID
+    is_featured: bool
+
+
 class CreateProjectResponse(BaseModel):
     id: uuid.UUID
     title: str
@@ -166,6 +251,7 @@ class CreateProjectResponse(BaseModel):
     is_featured: bool
     views: int
     seo: SeoResponse
+    meta: dict
     blocks: list = Field(default_factory=list, description="Content blocks — always empty on create.")
     author_id: uuid.UUID
     published_at: datetime.datetime | None
@@ -198,6 +284,7 @@ class UpdateProjectResponse(BaseModel):
     is_featured: bool
     views: int
     seo: SeoResponse
+    meta: dict
     blocks: list[BlockResponse]
     author_id: uuid.UUID
     published_at: datetime.datetime | None
@@ -231,6 +318,7 @@ class GetProjectResponse(BaseModel):
     is_featured: bool
     views: int
     seo: SeoResponse
+    meta: dict
     blocks: list[BlockResponse]
     author_id: uuid.UUID
     published_at: datetime.datetime | None
@@ -246,3 +334,155 @@ class GetProjectResponse(BaseModel):
         if value is None:
             return None
         return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class DuplicateProjectResponse(BaseModel):
+    original_id: uuid.UUID
+    new_project: GetProjectResponse
+
+
+class PublishProjectResponse(BaseModel):
+    id: uuid.UUID
+    slug: str
+    status: str
+    published_at: datetime.datetime
+    url: str
+
+    @field_serializer("published_at")
+    def _serialize_published_at(self, value: datetime.datetime) -> str:
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class ProjectSummaryResponse(BaseModel):
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+    template_id: str
+    status: str
+    is_featured: bool
+    views: int
+    reactions_count: int = 0
+    tech_stack: list[str]
+    github_url: str | None
+    demo_url: str | None
+    published_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    @field_serializer("created_at", "updated_at")
+    def _serialize_dt(self, value: datetime.datetime) -> str:
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @field_serializer("published_at")
+    def _serialize_published_at(self, value: datetime.datetime | None) -> str | None:
+        if value is None:
+            return None
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class ListProjectsResponse(BaseModel):
+    items: list[ProjectSummaryResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class ProjectStatusCountsResponse(BaseModel):
+    total: int
+    draft: int
+    published: int
+    archived: int
+
+
+class PublicProjectNeighborResponse(BaseModel):
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+
+
+class PublicProjectResponse(BaseModel):
+    """Public, unauthenticated view of a published project + its blocks."""
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+    image_url: str | None = None
+    tech_stack: list[str]
+    template_id: str
+    github_url: str | None
+    demo_url: str | None
+    views: int
+    seo: SeoResponse
+    meta: dict
+    category: str | None = None
+    role: str | None = None
+    timeline: str | None = None
+    status_label: str | None = None
+    recognition: str | None = None
+    blocks: list[BlockResponse]
+    reactions: dict
+    prev_project: PublicProjectNeighborResponse | None
+    next_project: PublicProjectNeighborResponse | None
+    published_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    @field_serializer("created_at", "updated_at")
+    def _serialize_dt(self, value: datetime.datetime) -> str:
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @field_serializer("published_at")
+    def _serialize_published_at(self, value: datetime.datetime | None) -> str | None:
+        if value is None:
+            return None
+        return value.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class ReactToProjectRequest(BaseModel):
+    reaction_type: str = Field(
+        ...,
+        description="One of: like, love, fire, clap, mind_blown.",
+    )
+    session_id: str | None = Field(
+        None,
+        description="Opaque per-visitor id (used to attribute the reaction).",
+    )
+
+
+class ReactToProjectResponse(BaseModel):
+    slug: str
+    reactions: dict
+
+
+class BulkActionRequest(BaseModel):
+    action: str = Field(
+        ...,
+        description="One of: publish, archive, feature, unfeature, delete.",
+    )
+    project_ids: list[uuid.UUID] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="IDs of projects to act on. Max 100.",
+    )
+
+    @field_validator("action")
+    @classmethod
+    def action_allowed(cls, v: str) -> str:
+        allowed = {"publish", "archive", "feature", "unfeature", "delete"}
+        if v not in allowed:
+            raise ValueError(f"action must be one of: {sorted(allowed)}")
+        return v
+
+
+class BulkActionResponse(BaseModel):
+    action: str
+    requested: int
+    succeeded: int
+    failed: int
+    skipped: int
+    project_ids: list[uuid.UUID]

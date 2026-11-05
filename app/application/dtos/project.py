@@ -14,6 +14,7 @@ ALLOWED_TEMPLATE_IDS: frozenset[str] = frozenset({
     "gallery",
     "case-study",
     "minimal",
+    "interactive",
 })
 
 ALLOWED_VISIBILITY: frozenset[str] = frozenset({
@@ -25,6 +26,13 @@ ALLOWED_VISIBILITY: frozenset[str] = frozenset({
 ALLOWED_UPDATE_STATUS: frozenset[str] = frozenset({
     "draft",
     "published",
+    "archived",
+})
+
+ALLOWED_LIST_STATUS: frozenset[str] = frozenset({
+    "draft",
+    "published",
+    "archived",
 })
 
 SUPPORTED_BLOCK_TYPES: frozenset[str] = frozenset({
@@ -41,11 +49,25 @@ SUPPORTED_BLOCK_TYPES: frozenset[str] = frozenset({
     "comparison",
     "cta",
     "form",
+    "embed",
+})
+
+# Public reaction types (mirrors the `reaction_type` enum on the reactions table).
+ALLOWED_REACTION_TYPES: frozenset[str] = frozenset({
+    "like",
+    "love",
+    "fire",
+    "clap",
+    "mind_blown",
 })
 
 MAX_POLL_OPTIONS = 6
 MIN_POLL_OPTIONS = 2
 MAX_CODE_LENGTH = 50_000
+
+# Cap on how many projects can be featured on the public homepage at once.
+# Toggling a project to featured beyond this returns 409.
+MAX_FEATURED_PROJECTS = 3
 
 
 @dataclass(frozen=True)
@@ -69,6 +91,7 @@ class CreateProjectCommand:
     visibility: str = "public"
     is_featured: bool = False
     seo: SeoInput = field(default_factory=SeoInput)
+    meta: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -87,6 +110,7 @@ class CreateProjectResult:
     is_featured: bool
     views: int
     seo: dict
+    meta: dict
     author_id: uuid.UUID
     published_at: datetime.datetime | None
     created_at: datetime.datetime
@@ -114,10 +138,35 @@ class AddBlockCommand:
 
 
 @dataclass
+class UpdateBlockCommand:
+    project_id: uuid.UUID
+    block_id: uuid.UUID
+    requester_id: uuid.UUID
+    # None means "field omitted — leave unchanged". For config, an empty dict
+    # ({}) is distinct from None: it is a provided-but-empty partial (no-op
+    # merge), whereas None means the config key was absent from the request.
+    position: int | None = None
+    config: dict | None = None
+
+
+@dataclass
 class UpdateProjectCommand:
     project_id: uuid.UUID
     requester_id: uuid.UUID
     fields: dict
+
+
+@dataclass
+class ToggleFeatureCommand:
+    project_id: uuid.UUID
+    requester_id: uuid.UUID
+    is_featured: bool
+
+
+@dataclass(frozen=True)
+class ToggleFeatureResult:
+    id: uuid.UUID
+    is_featured: bool
 
 
 @dataclass(frozen=True)
@@ -136,12 +185,25 @@ class UpdateProjectResult:
     is_featured: bool
     views: int
     seo: dict
+    meta: dict
     blocks: list[BlockResult]
     author_id: uuid.UUID
     published_at: datetime.datetime | None
     created_at: datetime.datetime
     updated_at: datetime.datetime
     warnings: list[str]
+
+
+@dataclass
+class ReorderBlocksCommand:
+    project_id: uuid.UUID
+    requester_id: uuid.UUID
+    block_ids: list[uuid.UUID]
+
+
+@dataclass(frozen=True)
+class ReorderBlocksResult:
+    block_count: int
 
 
 @dataclass(frozen=True)
@@ -160,8 +222,178 @@ class GetProjectResult:
     is_featured: bool
     views: int
     seo: dict
+    meta: dict
     blocks: list[BlockResult]
     author_id: uuid.UUID
     published_at: datetime.datetime | None
     created_at: datetime.datetime
     updated_at: datetime.datetime
+
+
+@dataclass(frozen=True)
+class CheckSlugCommand:
+    slug: str
+    exclude_id: uuid.UUID | None = None
+
+
+@dataclass(frozen=True)
+class CheckSlugResult:
+    slug: str
+    available: bool
+    suggested: str | None
+
+
+@dataclass
+class DuplicateProjectCommand:
+    source_id: uuid.UUID
+    author_id: uuid.UUID
+    new_title: str | None = None
+    new_slug: str | None = None
+
+
+@dataclass(frozen=True)
+class DuplicateProjectResult:
+    original_id: uuid.UUID
+    new_project: GetProjectResult
+
+
+@dataclass(frozen=True)
+class PublishProjectCommand:
+    project_id: uuid.UUID
+    author_id: uuid.UUID
+
+
+@dataclass(frozen=True)
+class PublishProjectResult:
+    id: uuid.UUID
+    slug: str
+    status: str
+    published_at: datetime.datetime
+
+
+@dataclass
+class ListProjectsCommand:
+    author_id: uuid.UUID
+    status: str | None = None
+    search: str | None = None
+    page: int = 1
+    page_size: int = 20
+    template_id: str | None = None
+    sort_by: str = "created_at"
+    sort_dir: str = "desc"
+
+
+@dataclass(frozen=True)
+class ProjectSummaryResult:
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+    template_id: str
+    status: str
+    is_featured: bool
+    views: int
+    reactions_count: int
+    tech_stack: list[str]
+    github_url: str | None
+    demo_url: str | None
+    published_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
+@dataclass(frozen=True)
+class ListProjectsResult:
+    items: list[ProjectSummaryResult]
+    total: int
+    page: int
+    page_size: int
+
+
+ALLOWED_SORT_BY: frozenset[str] = frozenset({
+    "title",
+    "created_at",
+    "updated_at",
+    "views",
+    "status",
+})
+
+
+@dataclass(frozen=True)
+class StatusCountsResult:
+    total: int
+    draft: int
+    published: int
+    archived: int
+
+
+ALLOWED_BULK_ACTIONS: frozenset[str] = frozenset({
+    "publish",
+    "archive",
+    "feature",
+    "unfeature",
+    "delete",
+})
+
+
+@dataclass(frozen=True)
+class PublicProjectNeighbor:
+    """Minimal info for the prev/next-project footer links on the public page."""
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+
+
+@dataclass(frozen=True)
+class PublicProjectResult:
+    id: uuid.UUID
+    title: str
+    slug: str
+    excerpt: str | None
+    thumbnail_url: str | None
+    tech_stack: list[str]
+    template_id: str
+    github_url: str | None
+    demo_url: str | None
+    views: int
+    seo: dict
+    meta: dict
+    blocks: list[BlockResult]
+    reactions: dict
+    published_at: datetime.datetime | None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    prev_project: PublicProjectNeighbor | None
+    next_project: PublicProjectNeighbor | None
+
+
+@dataclass(frozen=True)
+class ReactToProjectCommand:
+    slug: str
+    reaction_type: str
+    session_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ReactToProjectResult:
+    slug: str
+    reactions: dict
+
+
+@dataclass
+class BulkActionCommand:
+    author_id: uuid.UUID
+    action: str
+    project_ids: list[uuid.UUID]
+
+
+@dataclass(frozen=True)
+class BulkActionResult:
+    action: str
+    requested: int
+    succeeded: int
+    failed: int
+    skipped: int
+    project_ids: list[uuid.UUID]

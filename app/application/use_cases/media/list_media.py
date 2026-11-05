@@ -6,6 +6,8 @@ HTTP, no framework imports.
 """
 from __future__ import annotations
 
+import math
+
 from app.application.dtos.media import (
     DEFAULT_LIMIT,
     MAX_LIMIT,
@@ -52,11 +54,15 @@ class ListMedia:
             limit=limit,
         )
 
+        total = page_result.total
+        total_pages = math.ceil(total / limit) if total > 0 else 0
+
         return ListMediaResult(
             assets=[to_media_view(item) for item in page_result.items],
-            total=page_result.total,
+            total=total,
             page=page,
             limit=limit,
+            total_pages=total_pages,
             # Stats are global (filters ignored) so the sidebar/pills stay
             # populated even on an empty filtered result.
             folder_stats=self._repo.folder_stats(),

@@ -77,7 +77,7 @@ class DeleteMedia:
         # drop the now-orphaned row. Only delete the row once the CDN is clear,
         # so a provider failure never leaves a dangling DB record.
         if asset.public_id:
-            self._storage.delete(asset.public_id)
+            self._storage.delete(asset.public_id, resource_type=asset.resource_type)
 
         self._repo.delete(asset.id)
 

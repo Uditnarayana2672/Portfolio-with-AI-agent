@@ -42,6 +42,30 @@ class BlockRepository(ABC):
         Flushes so the id is available; the request's session owns the commit."""
 
     @abstractmethod
+    def update_block(
+        self,
+        block_id: uuid.UUID,
+        *,
+        config: dict | None = None,
+        position: int | None = None,
+    ) -> Block:
+        """Update a block's ``config`` and/or ``position`` and bump ``updated_at``.
+
+        Only non-None arguments are applied (``block_type`` is immutable and
+        never updatable here). The caller must have verified the block exists
+        and belongs to the project. Flushes and returns the refreshed block;
+        the request's session owns the commit."""
+
+    @abstractmethod
     def delete(self, block_id: uuid.UUID) -> None:
         """Permanently delete a block by id. Caller must verify existence first.
         Flushes; the request's session owns the commit."""
+
+    @abstractmethod
+    def reorder(self, project_id: uuid.UUID, ordered_block_ids: list[uuid.UUID]) -> None:
+        """Assign position 0, 1, 2 … to blocks in the order supplied.
+
+        Caller must have verified that ``ordered_block_ids`` is the complete,
+        duplicate-free set of block IDs that belong to ``project_id``. Runs in
+        the request's open transaction (flush only — no commit). Each block's
+        ``updated_at`` is bumped."""
